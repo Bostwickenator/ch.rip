@@ -1,10 +1,10 @@
 # ch.rip - chirp eBook downloader
 
-Chapter Rip (ch.rip) to download an optionally pack the audio files for the books you have purchased on chirp. It should work on Windows, Linux, and MacOS.
+Chapter Rip (ch.rip) is a tool to download an optionally pack the audio files for the books you have purchased on chirp. It should work on Windows, Linux, and MacOS.
 
 ## Setup
 
-Download and unzip this repository
+First download and unzip this repository
 
 There are some prerequisites please install these now:
 * chrome - https://www.google.com/chrome/dr/download - needed because we have to use a chrome extension (ext folder)
