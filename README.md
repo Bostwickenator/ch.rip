@@ -4,7 +4,7 @@ Chapter Rip (ch.rip) to download an optionally pack the audio files for the book
 
 ## Setup
 
-Download and unzip this repository
+First download and unzip this repository
 
 There are some prerequisites please install these now:
 * chrome - https://www.google.com/chrome/dr/download - needed because we have to use a chrome extension (ext folder)
