@@ -2,5 +2,26 @@
   "dependencies": {
     "chromedriver": "^127.0.1",
     "selenium-webdriver": "^4.23.0"
-  }
+  },
+  "name": "ch.rip",
+  "description": "Chapter Rip (ch.rip) to download an optionally pack the audio files for the books you have purchased on chirp. It should work on Windows, Linux, and MacOS.",
+  "version": "1.0.0",
+  "main": "chrip.js",
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Bostwickenator/ch.rip.git"
+  },
+  "keywords": [
+    "chirp.com"
+  ],
+  "author": "bostwickenator",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/Bostwickenator/ch.rip/issues"
+  },
+  "homepage": "https://github.com/Bostwickenator/ch.rip#readme"
 }
