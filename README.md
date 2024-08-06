@@ -12,7 +12,6 @@ There are some prerequisites please install these now:
 
 For repacking books you will also need
 * ffmpeg - https://ffmpeg.org/ - THE swiss army knife for media file manipulation
-* python 3.10+ - https://www.python.org/downloads/ - Because I wrote the repacking script in python for some reason (sorry)
 
 ### Process
 * Install the above components.
