@@ -1,0 +1,16 @@
+{
+  "name": "chirp download helper",
+  "version": "1.0",
+  "manifest_version": 3,
+  "description": "Snoops chirp urls",
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "content_scripts": [
+   {
+     "matches": ["https://*.chirpbooks.com/player/*"],
+     "js": ["content-script.js"]
+   }],
+  "permissions": ["webRequest", "tabs"],
+  "host_permissions": ["https://*.chirpbooks.com/*"]
+}
