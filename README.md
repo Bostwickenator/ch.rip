@@ -4,6 +4,8 @@ Chapter Rip (ch.rip) to download an optionally pack the audio files for the book
 
 ## Setup
 
+Download and unzip this repository
+
 There are some prerequisites please install these now:
 * chrome - https://www.google.com/chrome/dr/download - needed because we have to use a chrome extension (ext folder)
 * node.js - https://nodejs.org/en/download/prebuilt-installer - runs the control script
@@ -14,7 +16,7 @@ For repacking books you will also need
 
 ### Process
 * Install the above components.
-* Navigate your command line to this directory then run `npm install`. This installs the selenium webdriver we need.
+* Navigate your command line to the directory containing this readmey then run `npm install`. This installs the selenium webdriver we need.
 * Done!
 
 ## Usage
@@ -23,7 +25,7 @@ For repacking books you will also need
 ----
 ### Downloading files
 ##### Step 1
-Navigate your command line to this directory then run
+Navigate your command line to the directory containing this readme then run
 > `node chrip.js`
 
 ##### Step 2
