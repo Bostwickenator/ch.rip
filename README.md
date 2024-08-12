@@ -2,6 +2,8 @@
 
 Chapter Rip (ch.rip) is a tool to download an optionally pack the audio files for the books you have purchased on chirp. It should work on Windows, Linux, and MacOS.
 
+This project owes a lot to the automation orginally from https://gist.github.com/nfriedly/1d0f81fd68addd594d4974923205c384 the sequence of which is maintained here.
+
 ## Setup
 
 First download and unzip this repository
