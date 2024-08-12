@@ -18,7 +18,7 @@ audioUrls = []
 chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
     console.log(details);
-   if (details.url.includes(".m4a")) {
+   if (details.url.includes(".m4a") || details.url.includes(".mp3")) {
       console.warn("An audio file!");
       if(!audioUrls.includes(details.url)){
         audioUrls.push(details.url);

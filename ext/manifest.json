@@ -12,5 +12,5 @@
      "js": ["content-script.js"]
    }],
   "permissions": ["webRequest", "tabs"],
-  "host_permissions": ["https://*.chirpbooks.com/*"]
+  "host_permissions": ["<all_urls>"]
 }

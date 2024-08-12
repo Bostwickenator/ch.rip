@@ -45,7 +45,6 @@ async function login(driver) {
 function extractChTrckCookie(cookieBundle) {
     // Split the cookie bundle into individual cookie strings
     const cookies = cookieBundle.split('; ');
-
     // Find the cookie string starting with "ch_trck="
     const chTrckCookie = cookies.find(cookie => cookie.startsWith('ch_trck='));
 
@@ -55,8 +54,8 @@ function extractChTrckCookie(cookieBundle) {
 
         return encodedValue;
     } else {
-        console.error("Cannot find cookie");
-        exit()
+        console.error(JSON.stringify(cookies));
+        throw new Error("Cannot find cookie");
     }
 }
 
@@ -98,6 +97,8 @@ async function resetToLibrary(driver) {
 
 
             console.log("On a book page")
+            console.log("WAIT!")
+            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
             await sleep(5000)
 
             const bundle = await driver.executeScript('return document.cookie')
@@ -108,15 +109,14 @@ async function resetToLibrary(driver) {
 
             const dirname = filename(`${title} - ${credits}`);
             fs.mkdir(dirname, (err) => {
-                if (err) {
-                    console.error(err);
-                    exit();
+                if (err && err.code !== 'EEXIST') {
+                    throw err
                 }
                 console.log('Directory created successfully!');
             });
 
             await getCover(dirname, driver);
-
+            console.log("READY!");
             urls = [];
             let count = 1;
             let moreChapters = true;
@@ -172,7 +172,11 @@ async function resetToLibrary(driver) {
                 }
             }
         }
-    } finally {
+    }
+    catch (error) {
+        console.error(error);
+    }
+    finally {
         await driver.quit()
     }
 })()
