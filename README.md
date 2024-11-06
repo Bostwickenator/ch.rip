@@ -2,6 +2,8 @@
 
 Chapter Rip (ch.rip) is a tool to download an optionally pack the audio files for the books you have purchased on chirp. It should work on Windows, Linux, and MacOS.
 
+This project owes a lot to the automation orginally from https://gist.github.com/nfriedly/1d0f81fd68addd594d4974923205c384 the sequence of which is maintained here.
+
 ## Setup
 
 First download and unzip this repository
@@ -45,8 +47,11 @@ The script closes the book tab. You may now select another book or exit the brow
 
 ----
 ### Repacking books
+Repacking books converts the folder of chapter files into a single audiobook file with chapter metadata and book cover. This make it easier to transfer your books to your mobile device.
+
 ##### Step 1
-Drag the book folder onto the repack.py file. Or run `python repack.py FOLDER_NAME`
+Navigate your command line to the directory containing this readme then run
+> `node repack.js FOLDER_NAME`
 
 ##### Step 2
 Delete the book folder if you don't need the individal chapters
