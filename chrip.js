@@ -156,7 +156,7 @@ async function resetToLibrary(driver) {
 
                 chapter = await driver.findElement(By.className("chapter")).getText()
 
-                let trackNum = count.toString().padStart(2, "0");
+                let trackNum = count.toString().padStart(4, "0");
                 let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
                 await writeFile(path.join(dirname, name), body)
                 count++;

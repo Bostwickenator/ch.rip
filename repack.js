@@ -57,7 +57,7 @@ function updateTitleWithAlbum(filepath) {
     }
 
     if (titleLineIndex === null || albumLineIndex === null) {
-        console.log(`File '${filepath}' does not contain both required lines ('title=' and 'album=')`);
+        console.log(`File '${filepath}' does not contain both required lines ('title=' and 'album=') using folder name instead`);
         const folderMeta = parseBookInfo(title);
         lines.push(`title=${folderMeta.title}`);
         lines.push(`album=${folderMeta.title}`);
