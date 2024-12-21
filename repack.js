@@ -106,7 +106,7 @@ async function makeChaptersMetadata(folder, listAudioFiles, metadatafile) {
     let count = 1;
 
     for (const audioFile of listAudioFiles) {
-        const filePath = `${folder}\\${audioFile}`;
+        const filePath = path.join(folder,audioFile);
         const command = `ffprobe -v quiet -of csv=p=0 -show_entries format=duration "${filePath}"`;
 
         const { stdout } = await new Promise((resolve, reject) => {
