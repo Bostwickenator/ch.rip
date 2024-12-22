@@ -22,14 +22,11 @@ async function getCover(dirname, driver) {
 
 }
 
-async function getCredits(driver) {
-    const credits = await driver.findElements(By.className("credit"))
-    cred = ""
-    for (let i = 0; i < credits.length; i++) {
-        cred += cred.length != 0 ? ' - ' : '';
-        cred += await credits[i].getText()
-    }
-    return filename(cred)
+async function getAuthor(driver) {
+    const creditElement = await driver.findElement(By.className("credit"))
+    const creditText = await creditElement.getText()
+    const authorName = creditText.split('Written by ')[1]
+    return filename(authorName)
 }
 
 async function login(driver) {
@@ -104,15 +101,18 @@ async function resetToLibrary(driver) {
             const bundle = await driver.executeScript('return document.cookie')
             const cookie = extractChTrckCookie(bundle);
 
-            credits = await getCredits(driver)
-            title = await driver.findElement(By.className("book-title")).getText()
+            const author = await getAuthor(driver)
+            const title = await driver.findElement(By.className("book-title")).getText()
 
-            const dirname = filename(`${title} - ${credits}`);
-            fs.mkdir(dirname, (err) => {
-                if (err && err.code !== 'EEXIST') {
-                    throw err
+            const authorDir = filename(`${author}`);
+            const bookDir = filename(`${title}`);
+            const dirname = path.join(authorDir, bookDir);
+
+            fs.mkdir(dirname, { recursive: true }, (err) => {
+                if (err) {
+                    throw err;
                 }
-                console.log('Directory created successfully!');
+                console.log('Directories created successfully!');
             });
 
             await getCover(dirname, driver);
@@ -157,7 +157,7 @@ async function resetToLibrary(driver) {
                 chapter = await driver.findElement(By.className("chapter")).getText()
 
                 let trackNum = count.toString().padStart(4, "0");
-                let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
+                    let name = `${trackNum}.m4a`;
                 await writeFile(path.join(dirname, name), body)
                 count++;
 
