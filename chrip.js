@@ -62,23 +62,62 @@ function extractChTrckCookie(cookieBundle) {
 async function resetToLibrary(driver) {
 
     let allTabs = await driver.getAllWindowHandles();
-    for (let tab of allTabs) {
-        await driver.switchTo().window(tab); // Switch to the current tab
-        break;
+    if (allTabs.length === 0) {
+        console.log("No windows remain open. Exiting resetToLibrary.");
+        return;
     }
 
-    await driver.get('https://www.chirpbooks.com/library')
-    while ((await driver.getTitle()).includes("My Library")) {
-        await sleep(1000)
-        let allTabs = await driver.getAllWindowHandles();
-        for (let tab of allTabs) {
-            await driver.switchTo().window(tab); // Switch to the current tab
-            // Check matching criteria (replace with your actual conditions)
-            let url = await driver.getCurrentUrl();
-            if (url.includes('player')) { // Example: Matching by title
-                console.log("Found matching tab:", url);
-                break; // Exit loop if you only need to find one
+    for (let tab of allTabs) {
+        try {
+            await driver.switchTo().window(tab);
+            break;
+        } catch (error) {
+            console.error("Error switching to window:", error);
+            continue;
+        }
+    }
+
+    try {
+        await driver.get('https://www.chirpbooks.com/library')
+    } catch (error) {
+        console.error("Error navigating to library:", error);
+        return;
+    }
+
+    while (true) {
+        try {
+            if ((await driver.getAllWindowHandles()).length === 0) {
+                console.log("No windows remain open. Exiting resetToLibrary.");
+                return;
             }
+
+            if ((await driver.getTitle()).includes("My Library")) {
+                await sleep(1000);
+                allTabs = await driver.getAllWindowHandles();
+                if (allTabs.length === 0) {
+                    console.log("No windows remain open. Exiting resetToLibrary.");
+                    return;
+                }
+
+                for (let tab of allTabs) {
+                    try {
+                        await driver.switchTo().window(tab);
+                    } catch (error) {
+                        console.error("Error switching to window:", error);
+                        continue;
+                    }
+                    let url = await driver.getCurrentUrl();
+            if (url.includes('player')) { // Example: Matching by title
+                        console.log("Found matching tab:", url);
+                        break; // Exit loop if you only need to find one
+                    }
+                }
+            } else {
+                break;
+            }
+        } catch (error) {
+            console.error("Error in resetToLibrary loop:", error);
+            break;
         }
     }
 }
@@ -95,11 +134,26 @@ async function resetToLibrary(driver) {
         while (true) {
             await resetToLibrary(driver)
 
+            if ((await driver.getAllWindowHandles()).length === 0) {
+                console.log("No windows remain open. Exiting loop.");
+                break;
+            }
 
             console.log("On a book page")
             console.log("WAIT!")
-            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
-            await sleep(5000)
+
+            try {
+                await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
+                await sleep(5000)
+            } catch (error) {
+                console.error("Element not found, exiting loop:", error);
+                break;
+            }
+
+            if ((await driver.getAllWindowHandles()).length === 0) {
+                console.log("No windows remain open. Exiting loop.");
+                break;
+            }
 
             const bundle = await driver.executeScript('return document.cookie')
             const cookie = extractChTrckCookie(bundle);
@@ -123,52 +177,61 @@ async function resetToLibrary(driver) {
             while (moreChapters) {
 
                 await sleep(1000)
-                await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
-                const element = await driver.findElement(By.id('audioUrl'))
-                const url = await element.getText()
-                if (urls.includes(url))
-                    continue
+                try {
+                    if ((await driver.getAllWindowHandles()).length === 0) {
+                        console.log("No windows remain open. Exiting loop.");
+                        break;
+                    }
+                    await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
+                    const element = await driver.findElement(By.id('audioUrl'))
+                    const url = await element.getText()
+                    if (urls.includes(url))
+                        continue
 
-                urls.push(url)
+                    urls.push(url)
 
-                const response = await fetch(url, {
-                    "headers": {
-                        "accept": "*/*",
-                        "accept-language": "en-US,en-GB;q=0.9,en;q=0.8",
-                        "if-range": "\"02b735596ce7485b7f7fea0eb05e4eac\"",
-                        "priority": "i",
-                        "range": "bytes=0-",
-                        "sec-ch-ua": "\"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"126\", \"Google Chrome\";v=\"126\"",
-                        "sec-ch-ua-mobile": "?0",
-                        "sec-ch-ua-platform": "\"Windows\"",
-                        "sec-fetch-dest": "audio",
-                        "sec-fetch-mode": "no-cors",
-                        "sec-fetch-site": "same-site",
-                        "cookie": "ch_trck=" + cookie,
-                        "Referer": "https://www.chirpbooks.com/",
-                        "Referrer-Policy": "strict-origin-when-cross-origin"
-                    },
-                    "body": null,
-                    "method": "GET"
-                });
-                const body = Readable.fromWeb(response.body)
+                    const response = await fetch(url, {
+                        "headers": {
+                            "accept": "*/*",
+                            "accept-language": "en-US,en-GB;q=0.9,en;q=0.8",
+                            "if-range": "\"02b735596ce7485b7f7fea0eb05e4eac\"",
+                            "priority": "i",
+                            "range": "bytes=0-",
+                            "sec-ch-ua": "\"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"126\", \"Google Chrome\";v=\"126\"",
+                            "sec-ch-ua-mobile": "?0",
+                            "sec-ch-ua-platform": "\"Windows\"",
+                            "sec-fetch-dest": "audio",
+                            "sec-fetch-mode": "no-cors",
+                            "sec-fetch-site": "same-site",
+                            "cookie": "ch_trck=" + cookie,
+                            "Referer": "https://www.chirpbooks.com/",
+                            "Referrer-Policy": "strict-origin-when-cross-origin"
+                        },
+                        "body": null,
+                        "method": "GET"
+                    });
+                    const body = Readable.fromWeb(response.body)
 
 
-                chapter = await driver.findElement(By.className("chapter")).getText()
+                    chapter = await driver.findElement(By.className("chapter")).getText()
 
-                let trackNum = count.toString().padStart(4, "0");
-                let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
-                await writeFile(path.join(dirname, name), body)
-                count++;
+                    let trackNum = count.toString().padStart(4, "0");
+                    let name = `${trackNum}.m4a`;
+                    await writeFile(path.join(dirname, name), body)
+                    count++;
 
-                const btn = await driver.findElement(By.className("next-chapter"))
-                const enabled = await btn.isEnabled()
-                if (!enabled) {
-                    moreChapters = false;
-                    driver.close()
+                    const btn = await driver.findElement(By.className("next-chapter"))
+                    const enabled = await btn.isEnabled()
+                    if (!enabled) {
+                        moreChapters = false;
+                        driver.close()
+                        break;
+                    } else {
+                        await btn.click()
+                    }
+                } catch (error) {
+                    console.error("Error fetching audio URL:", error);
                     break;
-                } else {
-                    await btn.click()
                 }
             }
         }
