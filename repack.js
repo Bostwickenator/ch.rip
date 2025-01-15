@@ -21,12 +21,12 @@ function parseBookInfo(title) {
     return { title: titleExtracted, author, narrator };
 }
 
-
-async function execCommand(command) {
+async function spawnCommand(command, cwd) {
     return new Promise((resolve, reject) => {
         const childProcess = spawn(command, {
             stdio: 'inherit',
-            shell: true
+            shell: true,
+            cwd: cwd || process.cwd(),
         });
         childProcess.on('error', (error) => {
             reject(error);
@@ -37,6 +37,18 @@ async function execCommand(command) {
             } else {
                 reject(new Error(`Command exited with code ${code}.`));
             }
+        });
+    });
+};
+
+async function execCommand(command, cwd) {
+    return new Promise((resolve, reject) => {
+        exec(command, { cwd: cwd || process.cwd(), }, (error, stdout, stderr) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve({ stdout, stderr });
         });
     });
 };
@@ -72,55 +84,60 @@ function updateTitleWithAlbum(filepath) {
     fs.writeFileSync(filepath, lines.join('\n'));
 }
 
-function getChapterTitle(filepath) {
-    return new Promise((resolve, reject) => {
-        const command = `ffprobe -show_entries format_tags="title" -v quiet "${filepath}"`;
-        exec(command, { cwd: process.cwd() }, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
-                return;
-            }
+async function getChapterTitle(filepath) {
+    const command = `ffprobe -show_entries format_tags="title" -v quiet "${filepath}"`;
+    const { stdout } = await execCommand(command);
 
-            const lines = stdout.split('\n');
-            const titleRegex = /^TAG:title=(.*)$/;
+    const lines = stdout.split('\n');
+    const titleRegex = /^TAG:title=(.*)$/;
 
-            for (const line of lines) {
-                const match = line.match(titleRegex);
-                if (match) {
-                    resolve(match[1]);
-                    return;
-                }
-            }
+    for (const line of lines) {
+        const match = line.match(titleRegex);
+        if (match) {
+            return match[1];
+        }
+    }
 
-            const start = '- ';
-            const title = filepath.slice(filepath.lastIndexOf(start) + start.length, filepath.indexOf('.m4a'));
-            resolve(title);
-        });
-    });
+    const start = '- ';
+    const title = filepath.slice(filepath.lastIndexOf(start) + start.length, filepath.indexOf('.m4a'));
+    return title;
 }
 
-async function makeChaptersMetadata(folder, listAudioFiles, metadatafile) {
+function mergeIdenticalContigiousChapters(chapters) {
+    const mergedChapters = {};
+    let currentChapter = null;
+
+    for (const [key, chapter] of Object.entries(chapters)) {
+        if (currentChapter && currentChapter.title === chapter.title) {
+            currentChapter.end = chapter.end;
+        } else {
+            if (currentChapter) {
+                mergedChapters[currentChapter.key] = currentChapter;
+            }
+            currentChapter = { ...chapter, key };
+        }
+    }
+
+    if (currentChapter) {
+        mergedChapters[currentChapter.key] = currentChapter;
+    }
+
+    return mergedChapters;
+}
+
+async function makeChaptersMetadata(listAudioFiles, metadatafile) {
     console.log('Making metadata source file');
 
-    const chapters = {};
+    let chapters = {};
     let count = 1;
 
     for (const audioFile of listAudioFiles) {
-        const filePath = path.join(folder,audioFile);
-        const command = `ffprobe -v quiet -of csv=p=0 -show_entries format=duration "${filePath}"`;
+        const command = `ffprobe -v quiet -of csv=p=0 -show_entries format=duration "${audioFile}"`;
 
-        const { stdout } = await new Promise((resolve, reject) => {
-            exec(command, { cwd: process.cwd() }, (error, stdout, stderr) => {
-                if (error) {
-                    reject(error);
-                    return;
-                }
-                resolve({ stdout, stderr });
-            });
-        });
+        const {stdout} = await execCommand(command);
 
         const durationInMicroseconds = parseInt(stdout.trim().replace('.', ''));
-        const title = await getChapterTitle(filePath);
+        const title = await getChapterTitle(audioFile);
 
         chapters[`${count.toString().padStart(4, '0')}`] = { duration: durationInMicroseconds, title };
         count++;
@@ -139,18 +156,12 @@ async function makeChaptersMetadata(folder, listAudioFiles, metadatafile) {
     const lastChapter = Object.keys(chapters).length.toString().padStart(4, '0');
     chapters[lastChapter].end = chapters[lastChapter].start + chapters[lastChapter].duration;
 
-    const firstFile = path.join(folder, listAudioFiles[0]);
+    chapters = mergeIdenticalContigiousChapters(chapters);
+
+    const firstFile = listAudioFiles[0];
     const command = `ffmpeg -y -loglevel error -i "${firstFile}" -f ffmetadata "${metadatafile}"`;
 
-    await new Promise((resolve, reject) => {
-        exec(command, { cwd: process.cwd() }, (error, stdout, stderr) => {
-            if (error) {
-                reject(error);
-                return;
-            }
-            resolve({ stdout, stderr });
-        });
-    });
+    await execCommand(command);
 
     updateTitleWithAlbum(metadatafile);
 
@@ -166,20 +177,38 @@ title=${data.title}
     console.log(chapterMetadata);
 }
 
-async function concatenateAllToOneWithChapters(folder, metadatafile, listAudioFiles) {
+async function concatenateAllToOneWithChapters(metadatafile, listAudioFiles) {
     const filename = `${title}.m4a`;
     console.log(`Concatenating chapters to ${filename}`);
 
-    const cover = path.join(folder, 'cover.jpg');
-    const tempFile = path.join(folder, 'i.m4a');
+    const cover = 'cover.jpg';
+    const tempFile = 'i.m4a';
 
-    await execCommand(`ffmpeg -hide_banner -y -f concat -safe 0 -i "${listAudioFiles}" -i "${metadatafile}" -map_metadata 1 "${tempFile}"`);
-    await execCommand(`ffmpeg -i "${tempFile}" -i "${cover}" -c copy -disposition:v attached_pic "${filename}"`);
+    await spawnCommand(`ffmpeg -hide_banner -y -f concat -safe 0 -i "${listAudioFiles}" -i "${metadatafile}" -map_metadata 1 "${tempFile}"`);
+
+    console.log("Adding cover image");
+    await spawnCommand(`ffmpeg -hide_banner -loglevel error -i "${tempFile}" -i "${cover}" -c copy -disposition:v attached_pic "${filename}"`);
+
+    fs.renameSync(filename, path.join('..', filename));
 
     fs.unlinkSync(tempFile);
 }
 
-// ... (rest of the script) 
+function createFileList(listAudioFiles, listFilePath){
+    if (fs.existsSync(listFilePath)) {
+        fs.unlinkSync(listFilePath);
+    }
+    
+    let i = 0;
+    for (const audioFile of listAudioFiles) {
+        //FFMPEG escapes just don't work, so we have to replace the single quote with a different character
+        const audioFileSafe = audioFile.replaceAll("'", "’");
+        if(audioFileSafe !== audioFile){
+            fs.renameSync(audioFile, audioFileSafe);
+        }
+        fs.appendFileSync(listFilePath, `file '${audioFileSafe}'\n`);
+    }
+}
 
 if (require.main === module) {
     console.log(process.argv);
@@ -188,38 +217,25 @@ if (require.main === module) {
     title = path.basename(folder).replace(/"/g, '');
     console.log(title);
 
-    const listAudioFiles = fs.readdirSync(folder).filter(f => f.includes('.m4a'));
+    let listAudioFiles = fs.readdirSync(folder).filter(f => f.includes('.m4a'));
+    
+    // Make sure we don't include any temp files in case we crashed previously
+    listAudioFiles = listAudioFiles.filter(f => f !== 'i.m4a' && f !== `${title}.m4a`);
+    
     listAudioFiles.sort();
 
-    const metadatafile = path.join(folder, 'combined.metadata.txt');
-    const listfile = path.join(folder, 'list_audio_files.txt');
+    const metadataFilePath ='combined.metadata.txt';
+    const listFilePath ='list_audio_files.txt';
+   
+    process.chdir(folder)
 
-    makeChaptersMetadata(folder, listAudioFiles, metadatafile)
+    makeChaptersMetadata(listAudioFiles, metadataFilePath)
         .then(() => {
-            if (fs.existsSync(listfile)) {
-                fs.unlinkSync(listfile);
-            }
-
-            let i = 0;
-
-            for (const audioFile of listAudioFiles) {
-                const filepathOld = path.join(folder, audioFile);
-                const filepathNew = path.join(folder, `${i}.tmp`);
-                i++;
-
-                fs.copyFileSync(filepathOld, filepathNew);
-                fs.appendFileSync(listfile, `file '${filepathNew}'\n`);
-            }
-
-            return concatenateAllToOneWithChapters(folder, metadatafile, listfile);
+            createFileList(listAudioFiles, listFilePath);
+            return concatenateAllToOneWithChapters(metadataFilePath, listFilePath);
         })
         .then(() => {
-            let i = 0;
-
-            for (const audioFile of listAudioFiles) {
-                const filepathNew = path.join(folder, `${i}.tmp`);
-                i++;
-                fs.unlinkSync(filepathNew);
-            }
+           console.log("Completed successfully")
+           console.log("🐤.🪦");
         })
 }

@@ -1,2 +1,8 @@
 
 /node_modules
+**.tmp
+**.mp4
+**.m4a
+**.mp3
+**.jpg
+**.txt

@@ -5,6 +5,9 @@ const { writeFile } = require('node:fs/promises')
 const fs = require('fs');
 const path = require('path');
 
+
+let driver;
+
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -13,7 +16,7 @@ function filename(name) {
     return name.replaceAll('&', 'and').replaceAll(':', ' -').replaceAll(/[^a-z0-9 ._-]+/ig, '');
 }
 
-async function getCover(dirname, driver) {
+async function getCover(dirname) {
 
     src = await driver.findElement(By.className("cover-image")).getAttribute('src')
     const response = await fetch(src)
@@ -22,7 +25,7 @@ async function getCover(dirname, driver) {
 
 }
 
-async function getCredits(driver) {
+async function getCredits() {
     const credits = await driver.findElements(By.className("credit"))
     cred = ""
     for (let i = 0; i < credits.length; i++) {
@@ -32,7 +35,7 @@ async function getCredits(driver) {
     return filename(cred)
 }
 
-async function login(driver) {
+async function login() {
     await driver.get('https://www.chirpbooks.com/users/sign_in')
     await driver.wait(until.titleContains('Sign'), 1000)
 
@@ -59,7 +62,7 @@ function extractChTrckCookie(cookieBundle) {
     }
 }
 
-async function resetToLibrary(driver) {
+async function resetToLibrary() {
 
     let allTabs = await driver.getAllWindowHandles();
     for (let tab of allTabs) {
@@ -83,28 +86,38 @@ async function resetToLibrary(driver) {
     }
 }
 
+const insertStatusElement = 'var s = document.querySelector("#webplayer > div.player-main-container > div.player-book-info > div.book-info").appendChild(document.createElement("h1")); s.id="status"; s.style="color:white;";'
+const statusSelector = 'document.querySelector("#status")'
+
+async function setStatus(text) {
+    await driver.executeScript(`${statusSelector}.textContent="status: ${text}"`);
+    console.log(text);
+}
+
 ; (async function example() {
 
     let opt = new chrome.Options();
 
     opt.addArguments("--load-extension=" + __dirname + "/ext");
-    let driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
+    driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
     try {
         await login(driver)
 
         while (true) {
-            await resetToLibrary(driver)
+            await resetToLibrary()
 
 
             console.log("On a book page")
-            console.log("WAIT!")
+            await driver.executeScript(insertStatusElement);
+            await setStatus("!PLEASE WAIT!");
             await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
             await sleep(5000)
+
 
             const bundle = await driver.executeScript('return document.cookie')
             const cookie = extractChTrckCookie(bundle);
 
-            credits = await getCredits(driver)
+            credits = await getCredits()
             title = await driver.findElement(By.className("book-title")).getText()
 
             const dirname = filename(`${title} - ${credits}`);
@@ -114,9 +127,9 @@ async function resetToLibrary(driver) {
                 }
                 console.log('Directory created successfully!');
             });
-
-            await getCover(dirname, driver);
-            console.log("READY!");
+                     
+            await getCover(dirname);
+            await setStatus("Ready! make sure you are on the first chapter and hit play");
             urls = [];
             let count = 1;
             let moreChapters = true;
@@ -124,6 +137,7 @@ async function resetToLibrary(driver) {
 
                 await sleep(1000)
                 await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
+                await setStatus("Downloading chapter " + count);
                 const element = await driver.findElement(By.id('audioUrl'))
                 const url = await element.getText()
                 if (urls.includes(url))
