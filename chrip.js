@@ -13,7 +13,7 @@ function sleep(ms) {
 }
 
 function filename(name) {
-    return name.replaceAll('&', 'and').replaceAll(':', ' -').replaceAll(/[^a-z0-9 ._-—]+/ig, '');
+    return name.replaceAll('&', 'and').replaceAll(':', ' -').replaceAll(/[^a-z0-9 ._-]+/ig, '');
 }
 
 async function getCover(dirname) {
