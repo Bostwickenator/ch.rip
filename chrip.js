@@ -115,7 +115,10 @@ async function setStatus(text) {
 
 
             const bundle = await driver.executeScript('return document.cookie')
-            const cookie = extractChTrckCookie(bundle);
+            const chTrckCookie = extractChTrckCookie(bundle);
+            const cfBmCookie = (await driver.manage().getCookie('__cf_bm')).value;
+            const mjWpScrtCookie = (await driver.manage().getCookie('mj_wp_scrt')).value;
+
 
             credits = await getCredits()
             title = await driver.findElement(By.className("book-title")).getText()
@@ -158,7 +161,7 @@ async function setStatus(text) {
                         "sec-fetch-dest": "audio",
                         "sec-fetch-mode": "no-cors",
                         "sec-fetch-site": "same-site",
-                        "cookie": "ch_trck=" + cookie,
+                        "cookie": `__cf_bm=${cfBmCookie};ch_trck=${chTrckCookie};mj_wp_scrt=${mjWpScrtCookie}`,
                         "Referer": "https://www.chirpbooks.com/",
                         "Referrer-Policy": "strict-origin-when-cross-origin"
                     },
