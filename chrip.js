@@ -97,7 +97,7 @@ async function setStatus(text) {
 ; (async function example() {
 
     let opt = new chrome.Options();
-
+    opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
     opt.addArguments("--load-extension=" + __dirname + "/ext");
     driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
     try {
