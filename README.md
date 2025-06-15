@@ -56,3 +56,19 @@ Navigate your command line to the directory containing this readme then run
 ##### Step 2
 Delete the book folder if you don't need the individal chapters
 
+## Changelog
+
+### [1.1.0] - 2025-06-15
+#### Fixed
+- Fix for Chrome extension loading by adding `--disable-features=DisableLoadExtensionCommandLineSwitch` flag
+- Updated dependencies (chromedriver from v127 to v137)
+
+### [1.0.1] - 2025-04-09
+#### Fixed
+- Empty audio file downloads (0 byte .m4a files) by adding `__cf_bm` and `mj_wp_scrt` cookies to requests
+- Merged PR #18 from tjxn to fix audio download functionality
+
+### [1.0.0] - 2025-01-15
+#### Improved
+- Filename handling to support em dashes (—) in book titles (fixes issue #10)
+- Initial stable release
