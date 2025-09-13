@@ -100,28 +100,26 @@ async function setStatus(text) {
     opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
     opt.addArguments("--load-extension=" + __dirname + "/ext");
     driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
-    try {
-        await login(driver)
+
+    const mainProcess = async () => {
+        await login(driver);
 
         while (true) {
-            await resetToLibrary()
-
+            await resetToLibrary();
 
             console.log("On a book page")
             await driver.executeScript(insertStatusElement);
             await setStatus("!PLEASE WAIT!");
-            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
-            await sleep(5000)
+            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000);
+            await sleep(5000);
 
-
-            const bundle = await driver.executeScript('return document.cookie')
+            const bundle = await driver.executeScript('return document.cookie');
             const chTrckCookie = extractChTrckCookie(bundle);
             const cfBmCookie = (await driver.manage().getCookie('__cf_bm')).value;
             const mjWpScrtCookie = (await driver.manage().getCookie('mj_wp_scrt')).value;
 
-
-            credits = await getCredits()
-            title = await driver.findElement(By.className("book-title")).getText()
+            credits = await getCredits();
+            title = await driver.findElement(By.className("book-title")).getText();
 
             const dirname = filename(`${title} - ${credits}`);
             fs.mkdir(dirname, (err) => {
@@ -138,11 +136,11 @@ async function setStatus(text) {
             let moreChapters = true;
             while (moreChapters) {
 
-                await sleep(1000)
-                await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
+                await sleep(1000);
+                await driver.wait(until.elementLocated(By.id('audioUrl')), 100000);
                 await setStatus("Downloading chapter " + count);
-                const element = await driver.findElement(By.id('audioUrl'))
-                const url = await element.getText()
+                const element = await driver.findElement(By.id('audioUrl'));
+                const url = await element.getText();
                 if (urls.includes(url))
                     continue
 
@@ -170,30 +168,26 @@ async function setStatus(text) {
                 });
                 const body = Readable.fromWeb(response.body)
 
-
-                chapter = await driver.findElement(By.className("chapter")).getText()
+                chapter = await driver.findElement(By.className("chapter")).getText();
 
                 let trackNum = count.toString().padStart(4, "0");
                 let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
-                await writeFile(path.join(dirname, name), body)
+                await writeFile(path.join(dirname, name), body);
                 count++;
 
-                const btn = await driver.findElement(By.className("next-chapter"))
-                const enabled = await btn.isEnabled()
+                const btn = await driver.findElement(By.className("next-chapter"));
+                const enabled = await btn.isEnabled();
                 if (!enabled) {
                     moreChapters = false;
                     driver.close()
                     break;
                 } else {
-                    await btn.click()
+                    await btn.click();
                 }
             }
         }
-    }
-    catch (error) {
-        console.error(error);
-    }
-    finally {
-        await driver.quit()
-    }
+    };
+
+    await mainProcess().catch(e => console.error(e));
+    await driver.quit().catch(e => console.error('Failed to quit driver:', e));
 })()
