@@ -65,23 +65,56 @@ function extractChTrckCookie(cookieBundle) {
 async function resetToLibrary() {
 
     let allTabs = await driver.getAllWindowHandles();
+    if (allTabs.length === 0) {
+        console.log("No windows remain open. Exiting resetToLibrary.");
+        return;
+    }
+
     for (let tab of allTabs) {
-        await driver.switchTo().window(tab); // Switch to the current tab
+        await driver.switchTo().window(tab).catch(error => {
+            console.error("Error switching to window:", error);
+            return Promise.resolve(); // Continue to next tab
+        });
         break;
     }
 
-    await driver.get('https://www.chirpbooks.com/library')
-    while ((await driver.getTitle()).includes("My Library")) {
-        await sleep(1000)
-        let allTabs = await driver.getAllWindowHandles();
-        for (let tab of allTabs) {
-            await driver.switchTo().window(tab); // Switch to the current tab
-            // Check matching criteria (replace with your actual conditions)
-            let url = await driver.getCurrentUrl();
-            if (url.includes('player')) { // Example: Matching by title
-                console.log("Found matching tab:", url);
-                break; // Exit loop if you only need to find one
+    await driver.get('https://www.chirpbooks.com/library').catch(error => {
+        console.error("Error navigating to library:", error);
+        return;
+    });
+
+    while (true) {
+        try {
+            if ((await driver.getAllWindowHandles()).length === 0) {
+                console.log("No windows remain open. Exiting resetToLibrary.");
+                return;
             }
+
+            if ((await driver.getTitle()).includes("My Library")) {
+                await sleep(1000);
+                allTabs = await driver.getAllWindowHandles();
+                if (allTabs.length === 0) {
+                    console.log("No windows remain open. Exiting resetToLibrary.");
+                    return;
+                }
+
+                for (let tab of allTabs) {
+                    await driver.switchTo().window(tab).catch(error => {
+                        console.error("Error switching to window:", error);
+                        return Promise.resolve(); // Continue to next tab
+                    });
+                    let url = await driver.getCurrentUrl();
+                    if (url.includes('player')) { // Example: Matching by title
+                        console.log("Found matching tab:", url);
+                        break; // Exit loop if you only need to find one
+                    }
+                }
+            } else {
+                break;
+            }
+        } catch (error) {
+            console.error("Error in resetToLibrary loop:", error);
+            break;
         }
     }
 }
@@ -100,28 +133,40 @@ async function setStatus(text) {
     opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
     opt.addArguments("--load-extension=" + __dirname + "/ext");
     driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
-    try {
-        await login(driver)
+
+    const mainProcess = async () => {
+        await login(driver);
 
         while (true) {
-            await resetToLibrary()
+            await resetToLibrary();
 
+            if ((await driver.getAllWindowHandles()).length === 0) {
+                console.log("No windows remain open. Exiting loop.");
+                break;
+            }
 
             console.log("On a book page")
             await driver.executeScript(insertStatusElement);
             await setStatus("!PLEASE WAIT!");
-            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
-            await sleep(5000)
+            
+            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000).catch(error => {
+                console.error("Element not found, exiting loop:", error);
+                throw error; // Re-throw to break out of main loop
+            });
+            await sleep(5000);
 
+            if ((await driver.getAllWindowHandles()).length === 0) {
+                console.log("No windows remain open. Exiting loop.");
+                break;
+            }
 
-            const bundle = await driver.executeScript('return document.cookie')
+            const bundle = await driver.executeScript('return document.cookie');
             const chTrckCookie = extractChTrckCookie(bundle);
             const cfBmCookie = (await driver.manage().getCookie('__cf_bm')).value;
             const mjWpScrtCookie = (await driver.manage().getCookie('mj_wp_scrt')).value;
 
-
-            credits = await getCredits()
-            title = await driver.findElement(By.className("book-title")).getText()
+            credits = await getCredits();
+            title = await driver.findElement(By.className("book-title")).getText();
 
             const dirname = filename(`${title} - ${credits}`);
             fs.mkdir(dirname, (err) => {
@@ -138,11 +183,20 @@ async function setStatus(text) {
             let moreChapters = true;
             while (moreChapters) {
 
-                await sleep(1000)
-                await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
+                await sleep(1000);
+                
+                if ((await driver.getAllWindowHandles()).length === 0) {
+                    console.log("No windows remain open. Exiting loop.");
+                    break;
+                }
+                
+                await driver.wait(until.elementLocated(By.id('audioUrl')), 100000).catch(error => {
+                    console.error("Error fetching audio URL:", error);
+                    throw error; // Re-throw to break out of loops
+                });
                 await setStatus("Downloading chapter " + count);
-                const element = await driver.findElement(By.id('audioUrl'))
-                const url = await element.getText()
+                const element = await driver.findElement(By.id('audioUrl'));
+                const url = await element.getText();
                 if (urls.includes(url))
                     continue
 
@@ -170,30 +224,26 @@ async function setStatus(text) {
                 });
                 const body = Readable.fromWeb(response.body)
 
-
-                chapter = await driver.findElement(By.className("chapter")).getText()
+                chapter = await driver.findElement(By.className("chapter")).getText();
 
                 let trackNum = count.toString().padStart(4, "0");
-                let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
-                await writeFile(path.join(dirname, name), body)
+                let name = `${trackNum}.m4a`;
+                await writeFile(path.join(dirname, name), body);
                 count++;
 
-                const btn = await driver.findElement(By.className("next-chapter"))
-                const enabled = await btn.isEnabled()
+                const btn = await driver.findElement(By.className("next-chapter"));
+                const enabled = await btn.isEnabled();
                 if (!enabled) {
                     moreChapters = false;
                     driver.close()
                     break;
                 } else {
-                    await btn.click()
+                    await btn.click();
                 }
             }
         }
-    }
-    catch (error) {
-        console.error(error);
-    }
-    finally {
-        await driver.quit()
-    }
+    };
+
+    await mainProcess().catch(e => console.error(e));
+    await driver.quit().catch(e => console.error('Failed to quit driver:', e));
 })()

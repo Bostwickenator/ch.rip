@@ -238,4 +238,5 @@ if (require.main === module) {
            console.log("Completed successfully")
            console.log("🐤.🪦");
         })
+        .catch(e => console.error('Repack process failed:', e))
 }
