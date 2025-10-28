@@ -126,6 +126,9 @@ async function setStatus(text) {
             
             const mjWpScrtCookieObj = await driver.manage().getCookie('mj_wp_scrt');
             const mjWpScrtCookie = mjWpScrtCookieObj ? mjWpScrtCookieObj.value : null;
+            if (!mjWpScrtCookie) {
+                console.log('mj_wp_scrt cookie was not found and is being skipped');
+            }
 
 
             credits = await getCredits()
