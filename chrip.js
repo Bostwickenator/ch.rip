@@ -165,7 +165,7 @@ async function setStatus(text) {
                 if (mjWpScrtCookie) {
                     cookieParts.push(`mj_wp_scrt=${mjWpScrtCookie}`);
                 }
-                const cookieHeader = cookieParts.join(';');
+                const cookieHeader = cookieParts.join('; ');
                 
                 const response = await fetch(url, {
                     "headers": {
