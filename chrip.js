@@ -116,8 +116,16 @@ async function setStatus(text) {
 
             const bundle = await driver.executeScript('return document.cookie')
             const chTrckCookie = extractChTrckCookie(bundle);
-            const cfBmCookie = (await driver.manage().getCookie('__cf_bm')).value;
-            const mjWpScrtCookie = (await driver.manage().getCookie('mj_wp_scrt')).value;
+            
+            // Retrieve optional cookies with null checks
+            const cfBmCookieObj = await driver.manage().getCookie('__cf_bm');
+            const cfBmCookie = cfBmCookieObj ? cfBmCookieObj.value : null;
+            if (!cfBmCookie) {
+                console.log('__cf_bm cookie was not found and is being skipped');
+            }
+            
+            const mjWpScrtCookieObj = await driver.manage().getCookie('mj_wp_scrt');
+            const mjWpScrtCookie = mjWpScrtCookieObj ? mjWpScrtCookieObj.value : null;
 
 
             credits = await getCredits()
@@ -148,6 +156,17 @@ async function setStatus(text) {
 
                 urls.push(url)
 
+                // Build cookie header dynamically from available cookies
+                const cookieParts = [];
+                if (cfBmCookie) {
+                    cookieParts.push(`__cf_bm=${cfBmCookie}`);
+                }
+                cookieParts.push(`ch_trck=${chTrckCookie}`);
+                if (mjWpScrtCookie) {
+                    cookieParts.push(`mj_wp_scrt=${mjWpScrtCookie}`);
+                }
+                const cookieHeader = cookieParts.join(';');
+                
                 const response = await fetch(url, {
                     "headers": {
                         "accept": "*/*",
@@ -161,7 +180,7 @@ async function setStatus(text) {
                         "sec-fetch-dest": "audio",
                         "sec-fetch-mode": "no-cors",
                         "sec-fetch-site": "same-site",
-                        "cookie": `__cf_bm=${cfBmCookie};ch_trck=${chTrckCookie};mj_wp_scrt=${mjWpScrtCookie}`,
+                        "cookie": cookieHeader,
                         "Referer": "https://www.chirpbooks.com/",
                         "Referrer-Policy": "strict-origin-when-cross-origin"
                     },
