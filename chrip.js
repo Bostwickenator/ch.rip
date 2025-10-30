@@ -191,6 +191,7 @@ async function setStatus(text) {
                 const btn = await driver.findElement(By.className("next-chapter"))
                 const enabled = await btn.isEnabled()
                 if (!enabled) {
+                    console.log('Download complete!');
                     moreChapters = false;
                     driver.close()
                     break;
