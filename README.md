@@ -47,6 +47,10 @@ If you encounter issues, check the console output for error messages. When repor
 
 ## Changelog 📜
 
+### `1.2.0` - 2025-10-29
+#### Fixed
+- Updated the approach to use chrome for testing. A testing version of chrome will now be installed for this script to use. This will resolve issues with extension loading.
+
 ### `1.1.0` - 2025-06-15
 #### Fixed
 - Fix for Chrome extension loading by adding `--disable-features=DisableLoadExtensionCommandLineSwitch` flag
