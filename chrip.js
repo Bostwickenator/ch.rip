@@ -1,5 +1,6 @@
 const { Builder, Browser, By, Key, until } = require('selenium-webdriver')
 const chrome = require('selenium-webdriver/chrome');
+const { install, Browser: PuppeteerBrowser } = require('@puppeteer/browsers');
 const { Readable } = require('node:stream')
 const { writeFile } = require('node:fs/promises')
 const fs = require('fs');
@@ -96,9 +97,18 @@ async function setStatus(text) {
 
 ; (async function example() {
 
+    console.log("Ensuring Chrome for Testing is installed.");
+    const { path: chromePath } = await install({
+        browser: PuppeteerBrowser.CHROME,
+        buildId: '142.0.7444.59',
+        cacheDir: path.join(__dirname, '.browser-cache'),
+    });
+    console.log(`Using Chrome for Testing from: ${chromePath}`);
+
     let opt = new chrome.Options();
+    opt.setBinaryPath(chromePath);
     opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
-    opt.addArguments("--load-extension=" + __dirname + "/ext");
+    opt.addArguments("--load-extension=" + path.join(__dirname, "ext"));
     driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
     try {
         await login(driver)
@@ -194,6 +204,8 @@ async function setStatus(text) {
         console.error(error);
     }
     finally {
-        await driver.quit()
+        if (driver) {
+            await driver.quit()
+        }
     }
 })()
