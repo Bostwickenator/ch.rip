@@ -29,7 +29,7 @@ For repacking books you will also need
    > `node chrip.js`
 
 2. Login as prompted
-3. The browser will navigate to the My Library tab. Select the book you want to download.
+3. The browser will navigate to the My Library tab. Select the book you want to download. (click the cover not the title)
 4. Go to the first chapter of the book!! Press the play button. The script will now jump through all the chapters snooping on and downloading the files for you.
 Files will be in a subfolder next to this script.
 5. The script closes the book tab. You may now select another book or exit the browser window.
