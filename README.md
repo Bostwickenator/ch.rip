@@ -1,4 +1,5 @@
 # ch.rip - chirp eBook downloader
+## We are currently (2025/12/29) experiencing BLOCKING issues with CloudFlare see https://github.com/Bostwickenator/ch.rip/issues/34
 
 Chapter Rip (ch.rip) is a tool to download an optionally pack the audio files for the books you have purchased on chirp. It should work on Windows, Linux, and MacOS.
 
