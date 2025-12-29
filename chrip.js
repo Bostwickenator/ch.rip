@@ -109,6 +109,8 @@ async function setStatus(text) {
     opt.setBinaryPath(chromePath);
     opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
     opt.addArguments("--load-extension=" + path.join(__dirname, "ext"));
+    opt.addArguments("--no-sandbox");
+    opt.addArguments("--disable-dev-shm-usage");
     driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
     try {
         await login(driver)
