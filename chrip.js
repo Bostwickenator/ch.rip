@@ -105,10 +105,20 @@ async function setStatus(text) {
     });
     console.log(`Using Chrome for Testing from: ${chromePath}`);
 
+    const downloadDir = path.join(__dirname, '.downloads');
+    if (!fs.existsSync(downloadDir)) {
+        fs.mkdirSync(downloadDir);
+    }
+    
     let opt = new chrome.Options();
     opt.setBinaryPath(chromePath);
     opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
     opt.addArguments("--load-extension=" + path.join(__dirname, "ext"));
+    opt.setUserPreferences({
+        'download.default_directory': downloadDir,
+        'download.prompt_for_download': false,
+        'download.directory_upgrade': true,
+    });
     driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
     try {
         await login(driver)
@@ -153,9 +163,19 @@ async function setStatus(text) {
             });
                      
             await getCover(dirname);
-            await setStatus("Ready! make sure you are on the first chapter and hit play");
+            
+            const existingFiles = fs.existsSync(dirname) ? fs.readdirSync(dirname) : [];
+            const trackNumbers = existingFiles
+                .filter(f => f.endsWith('.m4a'))
+                .map(f => {
+                    const match = f.match(/- (\d{4}) -/);
+                    return match ? parseInt(match[1], 10) : 0;
+                });
+            let count = trackNumbers.length > 0 ? Math.max(...trackNumbers) + 1 : 1;
+            console.log(`Resuming from chapter ${count}`);
+            
+            await setStatus(`Ready! Navigate to chapter ${count} and hit play`);
             urls = [];
-            let count = 1;
             let moreChapters = true;
             while (moreChapters) {
 
@@ -169,45 +189,66 @@ async function setStatus(text) {
 
                 urls.push(url)
 
-                // Build cookie header dynamically from available cookies
-                const cookieParts = [];
-                if (cfBmCookie) {
-                    cookieParts.push(`__cf_bm=${cfBmCookie}`);
-                }
-                cookieParts.push(`ch_trck=${chTrckCookie}`);
-                if (mjWpScrtCookie) {
-                    cookieParts.push(`mj_wp_scrt=${mjWpScrtCookie}`);
-                }
-                const cookieHeader = cookieParts.join('; ');
+                const clearDownloadDir = () => {
+                    const files = fs.readdirSync(downloadDir);
+                    for (const file of files) {
+                        fs.unlinkSync(path.join(downloadDir, file));
+                    }
+                };
                 
-                const response = await fetch(url, {
-                    "headers": {
-                        "accept": "*/*",
-                        "accept-language": "en-US,en-GB;q=0.9,en;q=0.8",
-                        "if-range": "\"02b735596ce7485b7f7fea0eb05e4eac\"",
-                        "priority": "i",
-                        "range": "bytes=0-",
-                        "sec-ch-ua": "\"Not/A)Brand\";v=\"8\", \"Chromium\";v=\"126\", \"Google Chrome\";v=\"126\"",
-                        "sec-ch-ua-mobile": "?0",
-                        "sec-ch-ua-platform": "\"Windows\"",
-                        "sec-fetch-dest": "audio",
-                        "sec-fetch-mode": "no-cors",
-                        "sec-fetch-site": "same-site",
-                        "cookie": cookieHeader,
-                        "Referer": "https://www.chirpbooks.com/",
-                        "Referrer-Policy": "strict-origin-when-cross-origin"
-                    },
-                    "body": null,
-                    "method": "GET"
-                });
-                const body = Readable.fromWeb(response.body)
+                const waitForDownload = async (timeoutMs = 60000) => {
+                    const startTime = Date.now();
+                    let lastSize = 0;
+                    let stableCount = 0;
+                    
+                    while (Date.now() - startTime < timeoutMs) {
+                        const files = fs.readdirSync(downloadDir);
+                        const downloading = files.filter(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
+                        const completed = files.filter(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp'));
+                        
+                        if (completed.length > 0) {
+                            const filePath = path.join(downloadDir, completed[0]);
+                            const currentSize = fs.statSync(filePath).size;
+                            
+                            if (currentSize > 0 && currentSize === lastSize) {
+                                stableCount++;
+                                if (stableCount >= 3) {
+                                    return filePath;
+                                }
+                            } else {
+                                lastSize = currentSize;
+                                stableCount = 0;
+                            }
+                        } else if (downloading.length > 0) {
+                            stableCount = 0;
+                        }
+                        
+                        await sleep(500);
+                    }
+                    return null;
+                };
+                
+                clearDownloadDir();
+                
+                const originalWindow = await driver.getWindowHandle();
+                await driver.switchTo().newWindow('tab');
+                await driver.get(url);
+                
+                const downloadedFile = await waitForDownload(60000);
+                
+                await driver.close();
+                await driver.switchTo().window(originalWindow);
+                await sleep(500);
+                
+                const audioBuffer = fs.readFileSync(downloadedFile);
+                console.log(`Downloaded ${path.basename(downloadedFile)}: ${audioBuffer.length} bytes`);
 
 
                 chapter = await driver.findElement(By.className("chapter")).getText()
 
                 let trackNum = count.toString().padStart(4, "0");
                 let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
-                await writeFile(path.join(dirname, name), body)
+                await writeFile(path.join(dirname, name), audioBuffer)
                 count++;
 
                 const btn = await driver.findElement(By.className("next-chapter"))
