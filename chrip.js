@@ -17,6 +17,23 @@ function filename(name) {
     return name.replaceAll('&', 'and').replaceAll(':', ' -').replaceAll(/[^a-z0-9 ._-]+/ig, '');
 }
 
+function getResumeStatusMessage(existingFiles, count) {
+    if (count > 1) {
+        // Find the previous chapter file and extract its name
+        const prevTrackNum = (count - 1).toString().padStart(4, "0");
+        const prevFile = existingFiles.find(f => f.includes(` - ${prevTrackNum} - `));
+        if (prevFile) {
+            // Extract chapter name: everything after " - XXXX - " and before ".m4a"
+            const chapterMatch = prevFile.match(/ - \d{4} - (.+)\.m4a$/);
+            const prevChapterName = chapterMatch ? chapterMatch[1] : null;
+            if (prevChapterName) {
+                return `Ready! Navigate to chapter after "${prevChapterName}" and hit play`;
+            }
+        }
+    }
+    return `Ready! Navigate to chapter ${count} and hit play`;
+}
+
 async function getCover(dirname) {
 
     src = await driver.findElement(By.className("cover-image")).getAttribute('src')
@@ -91,7 +108,7 @@ const insertStatusElement = 'var s = document.querySelector("#webplayer > div.pl
 const statusSelector = 'document.querySelector("#status")'
 
 async function setStatus(text) {
-    await driver.executeScript(`${statusSelector}.textContent="status: ${text}"`);
+    await driver.executeScript(`${statusSelector}.textContent="status: " + ${JSON.stringify(text)}`);
     console.log(text);
 }
 
@@ -174,7 +191,7 @@ async function setStatus(text) {
             let count = trackNumbers.length > 0 ? Math.max(...trackNumbers) + 1 : 1;
             console.log(`Resuming from chapter ${count}`);
             
-            await setStatus(`Ready! Navigate to chapter ${count} and hit play`);
+            await setStatus(getResumeStatusMessage(existingFiles, count));
             urls = [];
             let moreChapters = true;
             while (moreChapters) {
@@ -188,6 +205,10 @@ async function setStatus(text) {
                     continue
 
                 urls.push(url)
+
+                // Pause playback while we work
+                const pause = await driver.findElement(By.className("play-pause playing"))
+                await pause.click();
 
                 const clearDownloadDir = () => {
                     const files = fs.readdirSync(downloadDir);
@@ -230,6 +251,7 @@ async function setStatus(text) {
                 
                 clearDownloadDir();
                 
+
                 const originalWindow = await driver.getWindowHandle();
                 await driver.switchTo().newWindow('tab');
                 await driver.get(url);
@@ -239,6 +261,10 @@ async function setStatus(text) {
                 await driver.close();
                 await driver.switchTo().window(originalWindow);
                 await sleep(500);
+                
+
+                // Pause for 15 seconds to avoid rate limiting
+                await sleep(15000);
                 
                 const audioBuffer = fs.readFileSync(downloadedFile);
                 console.log(`Downloaded ${path.basename(downloadedFile)}: ${audioBuffer.length} bytes`);
@@ -261,6 +287,10 @@ async function setStatus(text) {
                 } else {
                     await btn.click()
                 }
+
+                // Resume playback
+                const play = await driver.findElement(By.className("play-pause paused"))
+                await play.click();
             }
         }
     }
