@@ -189,7 +189,7 @@ async function setStatus(text) {
                     return match ? parseInt(match[1], 10) : 0;
                 });
             let count = trackNumbers.length > 0 ? Math.max(...trackNumbers) + 1 : 1;
-            console.log(`Resuming from chapter ${count}`);
+            console.log(`Resuming from file ${count}`);
             
             await setStatus(getResumeStatusMessage(existingFiles, count));
             urls = [];
@@ -198,7 +198,7 @@ async function setStatus(text) {
 
                 await sleep(1000)
                 await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
-                await setStatus("Downloading chapter " + count);
+                await setStatus("Downloading file " + count);
                 const element = await driver.findElement(By.id('audioUrl'))
                 const url = await element.getText()
                 if (urls.includes(url))
@@ -258,13 +258,23 @@ async function setStatus(text) {
                 
                 const downloadedFile = await waitForDownload(60000);
                 
+                if (!downloadedFile) {
+                    console.error('A download failed');
+                    console.error('Please rerun the script. Progress will be resumed from the last successful download.');
+                    await driver.close();
+                    await driver.switchTo().window(originalWindow);
+                    process.exit(1);
+                }
+                
                 await driver.close();
                 await driver.switchTo().window(originalWindow);
                 await sleep(500);
                 
+                await setStatus("Waiting for 5 seconds to avoid rate limiting");
 
-                // Pause for 15 seconds to avoid rate limiting
-                await sleep(15000);
+                // Pause for 5 seconds to avoid rate limiting
+                await sleep(5000);
+                
                 
                 const audioBuffer = fs.readFileSync(downloadedFile);
                 console.log(`Downloaded ${path.basename(downloadedFile)}: ${audioBuffer.length} bytes`);
