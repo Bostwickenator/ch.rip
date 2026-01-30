@@ -104,12 +104,63 @@ async function resetToLibrary() {
     }
 }
 
-const insertStatusElement = 'var s = document.querySelector("#webplayer > div.player-main-container > div.player-book-info > div.book-info").appendChild(document.createElement("h1")); s.id="status"; s.style="color:white;";'
-const statusSelector = 'document.querySelector("#status")'
+const insertStatusElement = `
+    (function() {
+        // Try multiple selectors for compatibility with old and new website layouts
+        const possibleSelectors = [
+            '#webplayer > div.player-main-container > div.player-book-info > div.book-info',
+            '.player-book-info .book-info',
+            '[data-testid="user-audiobook-card"]'
+        ];
+        
+        let targetContainer = null;
+        for (const selector of possibleSelectors) {
+            targetContainer = document.querySelector(selector);
+            if (targetContainer) break;
+        }
+        
+        if (!targetContainer) {
+            console.error('STATUS: Could not find book info container');
+            console.error('Expected one of these selectors:', possibleSelectors.join(', '));
+            console.warn('Page may have an unexpected layout. Try refreshing or manually clicking the book.');
+            return { success: false, error: 'DOM_MISMATCH', triedSelectors: possibleSelectors };
+        }
+        
+        // Remove existing status element if present
+        const existingStatus = document.getElementById('status');
+        if (existingStatus) {
+            existingStatus.remove();
+        }
+        
+        // Create and insert new status element
+        const statusEl = document.createElement('h1');
+        statusEl.id = 'status';
+        statusEl.style.cssText = 'color: white; margin: 10px 0; font-size: 1.2em;';
+        statusEl.textContent = 'status: initializing...';
+        
+        targetContainer.appendChild(statusEl);
+        return true;
+    })()
+`
 
 async function setStatus(text) {
-    await driver.executeScript(`${statusSelector}.textContent="status: " + ${JSON.stringify(text)}`);
-    console.log(text);
+    try {
+        const result = await driver.executeScript(`
+            const el = document.getElementById('status');
+            if (el) {
+                el.textContent = "status: " + ${JSON.stringify(text)};
+                return true;
+            }
+            return false;
+        `);
+        if (!result) {
+            console.warn('Status element not found, logging to console only');
+        }
+        console.log(text);
+    } catch (err) {
+        console.warn('Failed to update status element:', err.message);
+        console.log(text);
+    }
 }
 
 ; (async function example() {
@@ -145,8 +196,42 @@ async function setStatus(text) {
 
 
             console.log("On a book page")
-            await driver.executeScript(insertStatusElement);
-            await setStatus("!PLEASE WAIT!");
+            
+            // Try to insert status element with retry logic
+            let statusInserted = false;
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (!statusInserted && attempts < maxAttempts) {
+                attempts++;
+                const result = await driver.executeScript('return ' + insertStatusElement);
+                
+                if (result === true) {
+                    statusInserted = true;
+                    console.log('Status element inserted successfully');
+                } else if (result && result.success === false) {
+                    console.warn(`Attempt ${attempts}/${maxAttempts}: Could not find status element container`);
+                    console.warn('Tried selectors:', result.triedSelectors.join(', '));
+                    
+                    if (attempts < maxAttempts) {
+                        console.log('Waiting 5 seconds before retry...');
+                        await sleep(5000);
+                    } else {
+                        console.error('Max attempts reached. Page may have unexpected layout.');
+                        console.log('You can:');
+                        console.log('  1. Navigate to the book manually in the browser');
+                        console.log('  2. Refresh the page and wait for it to load');
+                        console.log('  3. Press Ctrl+C to exit and restart the script');
+                        console.log('Press Enter in this terminal to retry, or Ctrl+C to exit...');
+                        await new Promise(resolve => process.stdin.once('data', resolve));
+                        attempts = 0; // Reset attempts for another try
+                    }
+                }
+            }
+            
+            if (statusInserted) {
+                await setStatus("!PLEASE WAIT!");
+            }
             await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
             await sleep(5000)
 
