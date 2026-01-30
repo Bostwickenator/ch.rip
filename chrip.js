@@ -13,6 +13,28 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Wait for and switch to a new window/tab that opens
+async function waitForAndSwitchToNewWindow(originalHandle, timeoutMs = 10000) {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+        const handles = await driver.getAllWindowHandles();
+
+        // Look for a new handle that wasn't the original
+        const newHandle = handles.find(h => h !== originalHandle);
+
+        if (newHandle) {
+            console.log('New window/tab detected, switching to it...');
+            await driver.switchTo().window(newHandle);
+            return true;
+        }
+
+        await sleep(500);
+    }
+
+    return false;
+}
+
 function filename(name) {
     return name.replaceAll('&', 'and').replaceAll(':', ' -').replaceAll(/[^a-z0-9 ._-]+/ig, '');
 }
@@ -78,6 +100,10 @@ async function isListingPage() {
 async function navigateToPlayerFromListing(listingData = null) {
     console.log('On listing page, navigating to player...');
 
+    // Store original window handle to detect new tabs
+    const originalHandle = await driver.getWindowHandle();
+    console.log('Stored original window handle');
+
     // Try clicking approach first
     let clickSucceeded = false;
     const clickSelectors = [
@@ -92,6 +118,15 @@ async function navigateToPlayerFromListing(listingData = null) {
             await element.click();
             console.log(`Clicked ${name} to navigate to player`);
             clickSucceeded = true;
+
+            // Wait for new tab/window to open and switch to it
+            console.log('Waiting for player to open in new tab...');
+            const newWindowOpened = await waitForAndSwitchToNewWindow(originalHandle, 5000);
+
+            if (!newWindowOpened) {
+                console.log('No new tab detected, player may have opened in same tab');
+            }
+
             break;
         } catch (e) {
             console.log(`Could not click ${name}, trying next option...`);
