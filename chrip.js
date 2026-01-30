@@ -1,4 +1,4 @@
-const { Builder, Browser, By, Key, until } = require('selenium-webdriver')
+const { Builder, Browser, By, until } = require('selenium-webdriver')
 const chrome = require('selenium-webdriver/chrome');
 const { install, Browser: PuppeteerBrowser } = require('@puppeteer/browsers');
 const { Readable } = require('node:stream')
@@ -34,23 +34,151 @@ function getResumeStatusMessage(existingFiles, count) {
     return `Ready! Navigate to chapter ${count} and hit play`;
 }
 
-async function getCover(dirname) {
-
-    src = await driver.findElement(By.className("cover-image")).getAttribute('src')
-    const response = await fetch(src)
-    const body = Readable.fromWeb(response.body)
-    await writeFile(path.join(dirname, 'cover.jpg'), body)
-
+// Helper function to extract audiobook data from listing page JSON
+async function getAudiobookDataFromListing() {
+    try {
+        const element = await driver.findElement(By.css('[data-audiobook]'));
+        const dataAttr = await element.getAttribute('data-audiobook');
+        if (dataAttr) {
+            try {
+                return JSON.parse(dataAttr);
+            } catch (parseErr) {
+                console.warn('Failed to parse audiobook data JSON:', parseErr.message);
+                return null;
+            }
+        }
+    } catch (e) {
+        // Element not found or no data attribute
+        return null;
+    }
+    return null;
 }
 
-async function getCredits() {
-    const credits = await driver.findElements(By.className("credit"))
-    cred = ""
-    for (let i = 0; i < credits.length; i++) {
-        cred += cred.length != 0 ? ' - ' : '';
-        cred += await credits[i].getText()
+// Check if we're on a player page
+async function isPlayerPage() {
+    try {
+        const elements = await driver.findElements(By.id('webplayer'));
+        return elements.length > 0;
+    } catch (e) {
+        return false;
     }
-    return filename(cred)
+}
+
+// Check if we're on a listing/book page
+async function isListingPage() {
+    try {
+        const elements = await driver.findElements(By.css('[data-audiobook]'));
+        return elements.length > 0;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Navigate to player from listing page by clicking the book
+async function navigateToPlayerFromListing(listingData = null) {
+    console.log('On listing page, navigating to player...');
+
+    // Try clicking approach first
+    let clickSucceeded = false;
+    const clickSelectors = [
+        { selector: By.className('cover-image'), name: 'cover image' },
+        { selector: By.css('.book-title, h1'), name: 'book title' },
+        { selector: By.css('.audiobook-content, .content'), name: 'content area' }
+    ];
+
+    for (const { selector, name } of clickSelectors) {
+        try {
+            const element = await driver.findElement(selector);
+            await element.click();
+            console.log(`Clicked ${name} to navigate to player`);
+            clickSucceeded = true;
+            break;
+        } catch (e) {
+            console.log(`Could not click ${name}, trying next option...`);
+        }
+    }
+
+    // If clicking failed and we have listing data with URL, use direct navigation
+    if (!clickSucceeded && listingData && listingData.url) {
+        try {
+            const baseUrl = 'https://www.chirpbooks.com';
+            const playerUrl = baseUrl + listingData.url;
+            console.log(`Click navigation failed, using direct URL: ${playerUrl}`);
+            await driver.get(playerUrl);
+        } catch (e) {
+            console.error('Failed to navigate using listing URL:', e.message);
+            throw new Error('Could not navigate to player page');
+        }
+    }
+
+    // Wait for player page to load
+    console.log('Waiting for player page to load...');
+    await sleep(3000);
+
+    // Wait for the player to be initialized
+    await driver.wait(async () => {
+        return await isPlayerPage();
+    }, 30000);
+
+    console.log('Player page loaded');
+    await sleep(2000);
+}
+
+async function getCover(dirname, coverUrlFromListing = null) {
+    let src;
+
+    // Try to use listing data first if available
+    if (coverUrlFromListing) {
+        src = coverUrlFromListing;
+    } else {
+        // Fallback to DOM selector
+        try {
+            src = await driver.findElement(By.className("cover-image")).getAttribute('src');
+        } catch (e) {
+            console.error('Could not find cover image:', e.message);
+            return;
+        }
+    }
+
+    try {
+        const response = await fetch(src);
+        const body = Readable.fromWeb(response.body);
+        await writeFile(path.join(dirname, 'cover.jpg'), body);
+        console.log('Cover image downloaded successfully');
+    } catch (e) {
+        console.error('Failed to download cover image:', e.message);
+    }
+}
+
+async function getCredits(creditsFromListing = null) {
+    // Try to use listing data first if available
+    if (creditsFromListing && creditsFromListing.authorCredits && Array.isArray(creditsFromListing.authorCredits)) {
+        try {
+            const authors = creditsFromListing.authorCredits
+                .filter(a => a && a.name)
+                .map(a => a.name)
+                .join(' - ');
+            if (authors) {
+                return filename(`Written by ${authors}`);
+            }
+        } catch (err) {
+            console.warn('Error processing author credits from listing:', err.message);
+        }
+    }
+
+    // Fallback to DOM selector
+    try {
+        const credits = await driver.findElements(By.className("credit"))
+        let cred = ""
+        for (let i = 0; i < credits.length; i++) {
+            cred += cred.length != 0 ? ' - ' : '';
+            cred += await credits[i].getText()
+        }
+        return filename(cred)
+    } catch (e) {
+        console.error('Could not extract credits:', e.message);
+        return filename('Unknown Author');
+    }
 }
 
 async function login() {
@@ -163,7 +291,7 @@ async function setStatus(text) {
     }
 }
 
-; (async function example() {
+async function main() {
 
     console.log("Ensuring Chrome for Testing is installed.");
     const { path: chromePath } = await install({
@@ -177,7 +305,7 @@ async function setStatus(text) {
     if (!fs.existsSync(downloadDir)) {
         fs.mkdirSync(downloadDir);
     }
-    
+
     let opt = new chrome.Options();
     opt.setBinaryPath(chromePath);
     opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
@@ -195,24 +323,76 @@ async function setStatus(text) {
             await resetToLibrary()
 
 
-            console.log("On a book page")
-            
+            console.log("Waiting for you to navigate to a book...");
+            console.log("Please click on a book in your library to open it.");
+
+            // Wait for user to navigate to either a listing page or player page
+            let onCorrectPage = false;
+            let listingData = null;
+
+            while (!onCorrectPage) {
+                await sleep(2000);
+
+                // Check if we're on player page
+                if (await isPlayerPage()) {
+                    console.log('Detected player page');
+                    onCorrectPage = true;
+                    break;
+                }
+
+                // Check if we're on listing page
+                if (await isListingPage()) {
+                    console.log('Detected listing page, extracting metadata...');
+                    listingData = await getAudiobookDataFromListing();
+                    if (listingData) {
+                        console.log(`Book: ${listingData.displayTitle} by ${listingData.displayAuthors}`);
+                    }
+                    // Navigate to player page
+                    await navigateToPlayerFromListing(listingData);
+                    onCorrectPage = true;
+                    break;
+                }
+
+                // Check if URL indicates we're on a player or book page
+                const currentUrl = await driver.getCurrentUrl();
+                if (currentUrl.includes('/audiobooks/') || currentUrl.includes('player')) {
+                    console.log('Detected potential book/player page via URL');
+                    await sleep(3000); // Give it time to fully load
+
+                    // Re-check page type after wait
+                    if (await isPlayerPage()) {
+                        console.log('Confirmed player page after wait');
+                        onCorrectPage = true;
+                        break;
+                    }
+                    if (await isListingPage()) {
+                        console.log('Confirmed listing page after wait');
+                        listingData = await getAudiobookDataFromListing();
+                        await navigateToPlayerFromListing(listingData);
+                        onCorrectPage = true;
+                        break;
+                    }
+                }
+            }
+
+            console.log("On player page - proceeding with download setup")
+
             // Try to insert status element with retry logic
             let statusInserted = false;
             let attempts = 0;
             const maxAttempts = 3;
-            
+
             while (!statusInserted && attempts < maxAttempts) {
                 attempts++;
                 const result = await driver.executeScript('return ' + insertStatusElement);
-                
+
                 if (result === true) {
                     statusInserted = true;
                     console.log('Status element inserted successfully');
                 } else if (result && result.success === false) {
                     console.warn(`Attempt ${attempts}/${maxAttempts}: Could not find status element container`);
                     console.warn('Tried selectors:', result.triedSelectors.join(', '));
-                    
+
                     if (attempts < maxAttempts) {
                         console.log('Waiting 5 seconds before retry...');
                         await sleep(5000);
@@ -228,24 +408,26 @@ async function setStatus(text) {
                     }
                 }
             }
-            
+
             if (statusInserted) {
                 await setStatus("!PLEASE WAIT!");
             }
-            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
-            await sleep(5000)
+
+            // Wait for player elements to be ready
+            await driver.wait(until.elementLocated(By.css("#webplayer.initialized")), 60 * 1000)
+            await sleep(3000)
 
 
             const bundle = await driver.executeScript('return document.cookie')
             const chTrckCookie = extractChTrckCookie(bundle);
-            
+
             // Retrieve optional cookies with null checks
             const cfBmCookieObj = await driver.manage().getCookie('__cf_bm');
             const cfBmCookie = cfBmCookieObj ? cfBmCookieObj.value : null;
             if (!cfBmCookie) {
                 console.log('__cf_bm cookie was not found and is being skipped');
             }
-            
+
             const mjWpScrtCookieObj = await driver.manage().getCookie('mj_wp_scrt');
             const mjWpScrtCookie = mjWpScrtCookieObj ? mjWpScrtCookieObj.value : null;
             if (!mjWpScrtCookie) {
@@ -253,8 +435,20 @@ async function setStatus(text) {
             }
 
 
-            credits = await getCredits()
-            title = await driver.findElement(By.className("book-title")).getText()
+            // Extract metadata - use listing data if available, otherwise fall back to DOM
+            if (listingData) {
+                console.log('Using metadata from listing page...');
+            }
+
+            credits = await getCredits(listingData);
+
+            // Try to get title from listing data first, then fall back to DOM
+            if (listingData && listingData.displayTitle) {
+                title = listingData.displayTitle;
+                console.log(`Title from listing: ${title}`);
+            } else {
+                title = await driver.findElement(By.className("book-title")).getText();
+            }
 
             const dirname = filename(`${title} - ${credits}`);
             fs.mkdir(dirname, (err) => {
@@ -263,9 +457,10 @@ async function setStatus(text) {
                 }
                 console.log('Directory created successfully!');
             });
-                     
-            await getCover(dirname);
-            
+
+            // Pass cover URL from listing data if available
+            await getCover(dirname, listingData ? listingData.coverUrl : null);
+
             const existingFiles = fs.existsSync(dirname) ? fs.readdirSync(dirname) : [];
             const trackNumbers = existingFiles
                 .filter(f => f.endsWith('.m4a'))
@@ -275,7 +470,7 @@ async function setStatus(text) {
                 });
             let count = trackNumbers.length > 0 ? Math.max(...trackNumbers) + 1 : 1;
             console.log(`Resuming from file ${count}`);
-            
+
             await setStatus(getResumeStatusMessage(existingFiles, count));
             urls = [];
             let moreChapters = true;
@@ -301,21 +496,21 @@ async function setStatus(text) {
                         fs.unlinkSync(path.join(downloadDir, file));
                     }
                 };
-                
+
                 const waitForDownload = async (timeoutMs = 60000) => {
                     const startTime = Date.now();
                     let lastSize = 0;
                     let stableCount = 0;
-                    
+
                     while (Date.now() - startTime < timeoutMs) {
                         const files = fs.readdirSync(downloadDir);
                         const downloading = files.filter(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
                         const completed = files.filter(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp'));
-                        
+
                         if (completed.length > 0) {
                             const filePath = path.join(downloadDir, completed[0]);
                             const currentSize = fs.statSync(filePath).size;
-                            
+
                             if (currentSize > 0 && currentSize === lastSize) {
                                 stableCount++;
                                 if (stableCount >= 3) {
@@ -328,21 +523,21 @@ async function setStatus(text) {
                         } else if (downloading.length > 0) {
                             stableCount = 0;
                         }
-                        
+
                         await sleep(500);
                     }
                     return null;
                 };
-                
+
                 clearDownloadDir();
-                
+
 
                 const originalWindow = await driver.getWindowHandle();
                 await driver.switchTo().newWindow('tab');
                 await driver.get(url);
-                
+
                 const downloadedFile = await waitForDownload(60000);
-                
+
                 if (!downloadedFile) {
                     console.error('A download failed');
                     console.error('Please rerun the script. Progress will be resumed from the last successful download.');
@@ -350,17 +545,17 @@ async function setStatus(text) {
                     await driver.switchTo().window(originalWindow);
                     process.exit(1);
                 }
-                
+
                 await driver.close();
                 await driver.switchTo().window(originalWindow);
                 await sleep(500);
-                
+
                 await setStatus("Waiting for 5 seconds to avoid rate limiting");
 
                 // Pause for 5 seconds to avoid rate limiting
                 await sleep(5000);
-                
-                
+
+
                 const audioBuffer = fs.readFileSync(downloadedFile);
                 console.log(`Downloaded ${path.basename(downloadedFile)}: ${audioBuffer.length} bytes`);
 
@@ -397,4 +592,6 @@ async function setStatus(text) {
             await driver.quit()
         }
     }
-})()
+}
+
+main()
