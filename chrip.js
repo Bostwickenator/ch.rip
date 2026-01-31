@@ -126,7 +126,7 @@ async function resetToLibrary() {
 
 function insertStatusElement() {
     // Target the main player container
-    const targetContainer = document.querySelector('.player-main-container');
+    const targetContainer = document.querySelector('#webplayer > div.player-main-container > div.player-book-info > div.book-info');
 
     if (!targetContainer) {
         console.warn("Failed to find player main container!");
@@ -141,7 +141,7 @@ function insertStatusElement() {
 
     // Create and insert new status element with wrapper around it for more awareness
     const statusWrapper = document.createElement('div');
-    statusWrapper.style.cssText = "display: flex; margin: auto";
+    statusWrapper.style.cssText = "display: flex; justify-content: center";
 
     const statusEl = document.createElement('h1');
     statusEl.id = 'chrip-status';
