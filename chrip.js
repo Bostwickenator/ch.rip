@@ -102,8 +102,12 @@ async function login() {
 }
 
 async function resetToLibrary() {
-    await driver.get('https://www.chirpbooks.com/library');
+    const allTabs = await driver.getAllWindowHandles();
+    if (allTabs.length) {
+        await driver.switchTo().window(allTabs[0]) // Switch to the current tab
+    }
 
+    await driver.get('https://www.chirpbooks.com/library');
     while ((await getCurrentPage()) === "library") {
         await sleep(1000)
 
@@ -111,10 +115,9 @@ async function resetToLibrary() {
         for (let tab of allTabs) {
             await driver.switchTo().window(tab); // Switch to the current tab
             // Check matching criteria (replace with your actual conditions)
-            const url = await driver.getCurrentUrl();
-            const tabPage = await getCurrentPage()
+            const tabPage = await getCurrentPage();
             if (tabPage === "player") { // Example: Matching by title
-                console.log("Found matching tab:", url);
+                console.log("Found matching tab:", await driver.getCurrentUrl());
                 break; // Exit loop if you only need to find one
             }
         }
@@ -295,163 +298,164 @@ async function main() {
 
         await login(driver)
 
-        await waitForPlayer();
+        while (true) {
+            await waitForPlayer();
 
-        console.log("On player page - proceeding with download setup")
+            console.log("On player page - proceeding with download setup")
 
-        await attemptInsertStatus();
+            await attemptInsertStatus();
 
-        // Wait for player elements to be ready
-        driver.wait(until.elementLocated(By.css("#webplayer.initialized")), 60 * 1000)
-        await sleep(3000)
+            // Wait for player elements to be ready
+            driver.wait(until.elementLocated(By.css("#webplayer.initialized")), 60 * 1000)
+            await sleep(3000)
 
-        // Retrieve optional cookies with null checks
-        const cfBmCookieObj = await driver.manage().getCookie('__cf_bm');
-        const cfBmCookie = cfBmCookieObj ? cfBmCookieObj.value : null;
-        if (!cfBmCookie) {
-            console.log('__cf_bm cookie was not found and is being skipped');
-        }
-
-        const mjWpScrtCookieObj = await driver.manage().getCookie('mj_wp_scrt');
-        const mjWpScrtCookie = mjWpScrtCookieObj ? mjWpScrtCookieObj.value : null;
-        if (!mjWpScrtCookie) {
-            console.log('mj_wp_scrt cookie was not found and is being skipped');
-        }
-
-        const credits = await getCredits();
-        const title = await driver.findElement(By.className("book-title")).getText();
-
-        const dirname = filename(`${title} - ${credits}`);
-        fs.mkdir(dirname, (err) => {
-            if (err && err.code !== 'EEXIST') {
-                throw err
+            // Retrieve optional cookies with null checks
+            const cfBmCookieObj = await driver.manage().getCookie('__cf_bm');
+            const cfBmCookie = cfBmCookieObj ? cfBmCookieObj.value : null;
+            if (!cfBmCookie) {
+                console.log('__cf_bm cookie was not found and is being skipped');
             }
-            console.log('Directory created successfully!');
-        });
 
-        await getCover(dirname);
+            const mjWpScrtCookieObj = await driver.manage().getCookie('mj_wp_scrt');
+            const mjWpScrtCookie = mjWpScrtCookieObj ? mjWpScrtCookieObj.value : null;
+            if (!mjWpScrtCookie) {
+                console.log('mj_wp_scrt cookie was not found and is being skipped');
+            }
 
-        const existingFiles = fs.existsSync(dirname) ? fs.readdirSync(dirname) : [];
-        const trackNumbers = existingFiles
-            .filter(f => f.endsWith('.m4a'))
-            .map(f => {
-                const match = f.match(/- (\d{4}) -/);
-                return match ? parseInt(match[1], 10) : 0;
-            });
-        let count = trackNumbers.length > 0 ? Math.max(...trackNumbers) + 1 : 1;
-        console.log(`Resuming from file ${count}`);
+            const credits = await getCredits();
+            const title = await driver.findElement(By.className("book-title")).getText();
 
-        await setStatus(getResumeStatusMessage(existingFiles, count));
-
-        const urls = [];
-        let moreChapters = true;
-        while (moreChapters) {
-
-            await sleep(1000)
-            await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
-            await setStatus("Downloading file " + count);
-            const element = await driver.findElement(By.id('audioUrl'))
-            const url = await element.getText()
-            if (urls.includes(url))
-                continue
-
-            urls.push(url)
-
-            // Pause playback while we work
-            const pause = await driver.findElement(By.className("play-pause playing"))
-            await pause.click();
-
-            const clearDownloadDir = () => {
-                const files = fs.readdirSync(downloadDir);
-                for (const file of files) {
-                    fs.unlinkSync(path.join(downloadDir, file));
+            const dirname = filename(`${title} - ${credits}`);
+            fs.mkdir(dirname, (err) => {
+                if (err && err.code !== 'EEXIST') {
+                    throw err
                 }
-            };
+                console.log('Directory created successfully!');
+            });
 
-            const waitForDownload = async (timeoutMs = 60000) => {
-                const startTime = Date.now();
-                let lastSize = 0;
-                let stableCount = 0;
+            await getCover(dirname);
 
-                while (Date.now() - startTime < timeoutMs) {
+            const existingFiles = fs.existsSync(dirname) ? fs.readdirSync(dirname) : [];
+            const trackNumbers = existingFiles
+                .filter(f => f.endsWith('.m4a'))
+                .map(f => {
+                    const match = f.match(/- (\d{4}) -/);
+                    return match ? parseInt(match[1], 10) : 0;
+                });
+            let count = trackNumbers.length > 0 ? Math.max(...trackNumbers) + 1 : 1;
+            console.log(`Resuming from file ${count}`);
+
+            await setStatus(getResumeStatusMessage(existingFiles, count));
+
+            const urls = [];
+            let moreChapters = true;
+            while (moreChapters) {
+                await sleep(1000)
+                await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
+                await setStatus("Downloading file " + count);
+                const element = await driver.findElement(By.id('audioUrl'))
+                const url = await element.getText()
+                if (urls.includes(url))
+                    continue
+
+                urls.push(url)
+
+                // Pause playback while we work
+                const pause = await driver.findElement(By.className("play-pause playing"))
+                await pause.click();
+
+                const clearDownloadDir = () => {
                     const files = fs.readdirSync(downloadDir);
-                    const downloading = files.filter(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
-                    const completed = files.filter(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp'));
+                    for (const file of files) {
+                        fs.unlinkSync(path.join(downloadDir, file));
+                    }
+                };
 
-                    if (completed.length > 0) {
-                        const filePath = path.join(downloadDir, completed[0]);
-                        const currentSize = fs.statSync(filePath).size;
+                const waitForDownload = async (timeoutMs = 60000) => {
+                    const startTime = Date.now();
+                    let lastSize = 0;
+                    let stableCount = 0;
 
-                        if (currentSize > 0 && currentSize === lastSize) {
-                            stableCount++;
-                            if (stableCount >= 3) {
-                                return filePath;
+                    while (Date.now() - startTime < timeoutMs) {
+                        const files = fs.readdirSync(downloadDir);
+                        const downloading = files.filter(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
+                        const completed = files.filter(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp'));
+
+                        if (completed.length > 0) {
+                            const filePath = path.join(downloadDir, completed[0]);
+                            const currentSize = fs.statSync(filePath).size;
+
+                            if (currentSize > 0 && currentSize === lastSize) {
+                                stableCount++;
+                                if (stableCount >= 3) {
+                                    return filePath;
+                                }
+                            } else {
+                                lastSize = currentSize;
+                                stableCount = 0;
                             }
-                        } else {
-                            lastSize = currentSize;
+                        } else if (downloading.length > 0) {
                             stableCount = 0;
                         }
-                    } else if (downloading.length > 0) {
-                        stableCount = 0;
+
+                        await sleep(500);
                     }
+                    return null;
+                };
 
-                    await sleep(500);
+                clearDownloadDir();
+
+
+                const originalWindow = await driver.getWindowHandle();
+                await driver.switchTo().newWindow('tab');
+                await driver.get(url);
+
+                const downloadedFile = await waitForDownload(60000);
+
+                if (!downloadedFile) {
+                    console.error('A download failed');
+                    console.error('Please rerun the script. Progress will be resumed from the last successful download.');
+                    await driver.close();
+                    await driver.switchTo().window(originalWindow);
+                    process.exit(1);
                 }
-                return null;
-            };
 
-            clearDownloadDir();
-
-
-            const originalWindow = await driver.getWindowHandle();
-            await driver.switchTo().newWindow('tab');
-            await driver.get(url);
-
-            const downloadedFile = await waitForDownload(60000);
-
-            if (!downloadedFile) {
-                console.error('A download failed');
-                console.error('Please rerun the script. Progress will be resumed from the last successful download.');
                 await driver.close();
                 await driver.switchTo().window(originalWindow);
-                process.exit(1);
+                await sleep(500);
+
+                await setStatus("Waiting for 5 seconds to avoid rate limiting");
+
+                // Pause for 5 seconds to avoid rate limiting
+                await sleep(5000);
+
+
+                const audioBuffer = fs.readFileSync(downloadedFile);
+                console.log(`Downloaded ${path.basename(downloadedFile)}: ${audioBuffer.length} bytes`);
+
+
+                chapter = await driver.findElement(By.className("chapter")).getText()
+
+                let trackNum = count.toString().padStart(4, "0");
+                let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
+                await writeFile(path.join(dirname, name), audioBuffer)
+                count++;
+
+                const btn = await driver.findElement(By.className("next-chapter"))
+                const enabled = await btn.isEnabled()
+                if (!enabled) {
+                    console.log('Download complete!');
+                    moreChapters = false;
+                    await driver.close();
+                    break;
+                } else {
+                    await btn.click()
+                }
+
+                // Resume playback
+                const play = await driver.findElement(By.className("play-pause paused"))
+                await play.click();
             }
-
-            await driver.close();
-            await driver.switchTo().window(originalWindow);
-            await sleep(500);
-
-            await setStatus("Waiting for 5 seconds to avoid rate limiting");
-
-            // Pause for 5 seconds to avoid rate limiting
-            await sleep(5000);
-
-
-            const audioBuffer = fs.readFileSync(downloadedFile);
-            console.log(`Downloaded ${path.basename(downloadedFile)}: ${audioBuffer.length} bytes`);
-
-
-            chapter = await driver.findElement(By.className("chapter")).getText()
-
-            let trackNum = count.toString().padStart(4, "0");
-            let name = filename(`${title} - ${trackNum} - ${chapter}.m4a`);
-            await writeFile(path.join(dirname, name), audioBuffer)
-            count++;
-
-            const btn = await driver.findElement(By.className("next-chapter"))
-            const enabled = await btn.isEnabled()
-            if (!enabled) {
-                console.log('Download complete!');
-                moreChapters = false;
-                driver.close()
-                break;
-            } else {
-                await btn.click()
-            }
-
-            // Resume playback
-            const play = await driver.findElement(By.className("play-pause paused"))
-            await play.click();
         }
     } catch (error) {
         console.error(error);
