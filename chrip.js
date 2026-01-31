@@ -26,7 +26,7 @@ function getResumeStatusMessage(existingFiles, count) {
             const chapterMatch = prevFile.match(/ - \d{4} - (.+)\.m4a$/);
             const prevChapterName = chapterMatch ? chapterMatch[1] : null;
             if (prevChapterName) {
-                return `Ready! Navigate to chapter after "${prevChapterName}" and hit play`;
+                return `Ready! Navigate to chapter after '${prevChapterName}' and hit play`;
             }
         }
     }
@@ -242,12 +242,12 @@ async function waitForPlayer() {
         const currentPage = await getCurrentPage()
         if (!currentPage) {
             console.warn("Unrecognized URL. Will wait 2 seconds and try again...")
-            sleep(20_000);
+            await sleep(2000);
             continue;
         }
 
         if (currentPage === "library") {
-            sleep(20_000);
+            await sleep(2000);
             continue;
         }
 
@@ -342,6 +342,22 @@ async function main() {
         .build();
 
     try {
+        // Ensure only one tab exists and navigate to homepage
+        const handles = await driver.getAllWindowHandles();
+        if (handles.length > 1) {
+            console.log(`Closing ${handles.length - 1} extra tab(s)...`);
+            // Keep the first tab, close the rest
+            for (let i = 1; i < handles.length; i++) {
+                await driver.switchTo().window(handles[i]);
+                await driver.close();
+            }
+            await driver.switchTo().window(handles[0]);
+        }
+
+        // Always navigate to homepage to start fresh
+        await driver.get('https://www.chirpbooks.com/home');
+        await sleep(1000);
+
         await login(driver)
 
         const listingData = await waitForPlayer();
