@@ -86,6 +86,75 @@ async function isPlayerPage() {
     }
 }
 
+// Check if play button is visible and clickable
+// Supports: player page button, card play button overlay, book detail "Start Listening" button
+async function isPlayButtonVisible() {
+    try {
+        // Check for player page play button
+        const playerButtons = await driver.findElements(By.css('.play-pause'));
+        if (playerButtons.length > 0) return true;
+        
+        // Check for card play button overlay
+        const cardPlayButtons = await driver.findElements(By.css('[data-testid="cover-image-play-arrow"]'));
+        if (cardPlayButtons.length > 0) return true;
+        
+        // Check for book detail page "Start Listening" button
+        const startListeningButtons = await driver.findElements(By.css('[data-testid="play-audiobook-button"]'));
+        return startListeningButtons.length > 0;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Click the play button
+async function clickPlayButton() {
+    try {
+        // Try player page play button first
+        const playerButtons = await driver.findElements(By.css('.play-pause'));
+        if (playerButtons.length > 0) {
+            await playerButtons[0].click();
+            console.log('Clicked player page play button');
+            return true;
+        }
+        
+        // Try card play button overlay
+        const cardPlayButtons = await driver.findElements(By.css('[data-testid="cover-image-play-arrow"]'));
+        if (cardPlayButtons.length > 0) {
+            await cardPlayButtons[0].click();
+            console.log('Clicked card play button overlay');
+            return true;
+        }
+        
+        // Try book detail page "Start Listening" button
+        const startListeningButtons = await driver.findElements(By.css('[data-testid="play-audiobook-button"]'));
+        if (startListeningButtons.length > 0) {
+            await startListeningButtons[0].click();
+            console.log('Clicked Start Listening button');
+            return true;
+        }
+        
+        console.log('Could not find play button to click');
+        return false;
+    } catch (e) {
+        console.log('Could not click play button:', e.message);
+        return false;
+    }
+}
+
+// Wait for play button to be clickable
+async function waitForPlayButton(timeoutMs = 30000) {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+        if (await isPlayButtonVisible()) {
+            return true;
+        }
+        await sleep(500);
+    }
+
+    return false;
+}
+
 // Check if we're on a listing/book page
 async function isListingPage() {
     try {
@@ -96,6 +165,13 @@ async function isListingPage() {
     }
 }
 
+// Check if we're on a book detail page (separate from player page)
+async function isBookDetailPage() {
+    const currentUrl = await driver.getCurrentUrl();
+    // Book detail pages have /audiobooks/ in URL but no webplayer
+    return currentUrl.includes('/audiobooks/') && !(await isPlayerPage());
+}
+
 // Navigate to player from listing page by clicking the book
 async function navigateToPlayerFromListing(listingData = null) {
     console.log('On listing page, navigating to player...');
@@ -104,32 +180,58 @@ async function navigateToPlayerFromListing(listingData = null) {
     const originalHandle = await driver.getWindowHandle();
     console.log('Stored original window handle');
 
-    // Try clicking approach first
+    // Try clicking approach - prefer play button overlay, then cover, then card
     let clickSucceeded = false;
-    const clickSelectors = [
-        { selector: By.className('cover-image'), name: 'cover image' },
-        { selector: By.css('.book-title, h1'), name: 'book title' },
-        { selector: By.css('.audiobook-content, .content'), name: 'content area' }
-    ];
+    
+    // First try clicking the play button overlay (opens player directly)
+    try {
+        const playButtonOverlay = await driver.findElement(By.css('[data-testid="cover-image-play-arrow"]'));
+        await playButtonOverlay.click();
+        console.log('Clicked play button overlay');
+        clickSucceeded = true;
+        
+        // Wait for player to open in new tab
+        console.log('Waiting for player to open in new tab...');
+        const newWindowOpened = await waitForAndSwitchToNewWindow(originalHandle, 5000);
+        
+        if (!newWindowOpened) {
+            console.log('No new tab detected, checking if player opened in same tab...');
+        }
+    } catch (e) {
+        console.log('Could not click play button overlay, trying cover/card...');
+    }
+    
+    // If play button didn't work, try clicking the cover or card
+    if (!clickSucceeded) {
+        const clickSelectors = [
+            { selector: By.css('[data-testid="cover-image-container"]'), name: 'cover container' },
+            { selector: By.css('[data-testid="user-audiobook-card"]'), name: 'audiobook card' },
+            { selector: By.className('cover-image'), name: 'cover image' }
+        ];
 
-    for (const { selector, name } of clickSelectors) {
-        try {
-            const element = await driver.findElement(selector);
-            await element.click();
-            console.log(`Clicked ${name} to navigate to player`);
-            clickSucceeded = true;
+        for (const { selector, name } of clickSelectors) {
+            try {
+                const element = await driver.findElement(selector);
+                await element.click();
+                console.log('Clicked ' + name + ' to navigate to player');
+                clickSucceeded = true;
 
-            // Wait for new tab/window to open and switch to it
-            console.log('Waiting for player to open in new tab...');
-            const newWindowOpened = await waitForAndSwitchToNewWindow(originalHandle, 5000);
+                // Wait for navigation - could be new tab or same tab
+                console.log('Waiting for navigation...');
+                await sleep(3000);
+                
+                // Check if we opened a new tab
+                const newWindowOpened = await waitForAndSwitchToNewWindow(originalHandle, 3000);
+                if (newWindowOpened) {
+                    console.log('New tab detected, switched to it');
+                } else {
+                    console.log('Navigation stayed in same tab');
+                }
 
-            if (!newWindowOpened) {
-                console.log('No new tab detected, player may have opened in same tab');
+                break;
+            } catch (e) {
+                console.log('Could not click ' + name + ', trying next option...');
             }
-
-            break;
-        } catch (e) {
-            console.log(`Could not click ${name}, trying next option...`);
         }
     }
 
@@ -138,7 +240,7 @@ async function navigateToPlayerFromListing(listingData = null) {
         try {
             const baseUrl = 'https://www.chirpbooks.com';
             const playerUrl = baseUrl + listingData.url;
-            console.log(`Click navigation failed, using direct URL: ${playerUrl}`);
+            console.log('Click navigation failed, using direct URL: ' + playerUrl);
             await driver.get(playerUrl);
         } catch (e) {
             console.error('Failed to navigate using listing URL:', e.message);
@@ -146,9 +248,23 @@ async function navigateToPlayerFromListing(listingData = null) {
         }
     }
 
-    // Wait for player page to load
-    console.log('Waiting for player page to load...');
+    // Wait for navigation to complete
+    console.log('Waiting for page to load...');
     await sleep(3000);
+
+    // Check if we're on book detail page (need to click play button)
+    if (await isBookDetailPage()) {
+        console.log('On book detail page, looking for play button...');
+        if (await waitForPlayButton(30000)) {
+            const playClicked = await clickPlayButton();
+            if (playClicked) {
+                console.log('Clicked play button on book detail page');
+                await sleep(3000);
+                // Wait for player to load in new tab
+                await waitForAndSwitchToNewWindow(await driver.getWindowHandle(), 5000);
+            }
+        }
+    }
 
     // Wait for the player to be initialized
     await driver.wait(async () => {
@@ -267,44 +383,35 @@ async function resetToLibrary() {
     }
 }
 
-const insertStatusElement = `
-    (function() {
-        // Try multiple selectors for compatibility with old and new website layouts
-        const possibleSelectors = [
-            '#webplayer > div.player-main-container > div.player-book-info > div.book-info',
-            '.player-book-info .book-info',
-            '[data-testid="user-audiobook-card"]'
-        ];
-        
-        let targetContainer = null;
-        for (const selector of possibleSelectors) {
-            targetContainer = document.querySelector(selector);
-            if (targetContainer) break;
-        }
-        
-        if (!targetContainer) {
-            console.error('STATUS: Could not find book info container');
-            console.error('Expected one of these selectors:', possibleSelectors.join(', '));
-            console.warn('Page may have an unexpected layout. Try refreshing or manually clicking the book.');
-            return { success: false, error: 'DOM_MISMATCH', triedSelectors: possibleSelectors };
-        }
-        
-        // Remove existing status element if present
-        const existingStatus = document.getElementById('status');
-        if (existingStatus) {
-            existingStatus.remove();
-        }
-        
-        // Create and insert new status element
-        const statusEl = document.createElement('h1');
-        statusEl.id = 'status';
-        statusEl.style.cssText = 'color: white; margin: 10px 0; font-size: 1.2em;';
-        statusEl.textContent = 'status: initializing...';
-        
-        targetContainer.appendChild(statusEl);
-        return true;
-    })()
-`
+function insertStatusElement() {
+    // Target the main audiobook card container directly
+    const targetContainer = document.querySelector('[data-testid="user-audiobook-card"]');
+
+    if (!targetContainer) {
+        console.error('STATUS: Could not find book info container');
+        console.error('Expected selector: [data-testid="user-audiobook-card"]');
+        console.warn('Page may have an unexpected layout. Try refreshing or manually clicking the book.');
+        return { success: false, error: 'DOM_MISMATCH', triedSelectors: ['[data-testid="user-audiobook-card"]'] };
+    }
+
+    // Remove existing status element if present
+    const existingStatus = document.getElementById('status');
+    if (existingStatus) {
+        existingStatus.remove();
+    }
+
+    // Create and insert new status element
+    const statusEl = document.createElement('h1');
+    statusEl.id = 'status';
+    statusEl.style.cssText = 'color: white; margin: 10px 0; font-size: 1.2em;';
+    statusEl.textContent = 'status: initializing...';
+
+    targetContainer.appendChild(statusEl);
+    return true;
+}
+
+// Convert function to string for Selenium execution
+const insertStatusElementString = insertStatusElement.toString();
 
 async function setStatus(text) {
     try {
@@ -375,6 +482,28 @@ async function main() {
                     break;
                 }
 
+                // Check if we're on book detail page (need to click play button)
+                if (await isBookDetailPage()) {
+                    console.log('Detected book detail page, looking for play button...');
+                    
+                    // Wait for and click play button on book detail page
+                    if (await waitForPlayButton(30000)) {
+                        const playClicked = await clickPlayButton();
+                        if (playClicked) {
+                            console.log('Clicked play button on book detail page');
+                            // Wait for player to load in new tab
+                            await sleep(3000);
+                            // Check if player page loaded
+                            if (await isPlayerPage()) {
+                                console.log('Player page loaded after clicking play');
+                                onCorrectPage = true;
+                                break;
+                            }
+                        }
+                    }
+                    console.warn('Could not click play button on book detail page, will retry...');
+                }
+
                 // Check if we're on listing page
                 if (await isListingPage()) {
                     console.log('Detected listing page, extracting metadata...');
@@ -400,6 +529,21 @@ async function main() {
                         onCorrectPage = true;
                         break;
                     }
+                    if (await isBookDetailPage()) {
+                        console.log('Confirmed book detail page after wait, looking for play button...');
+                        if (await waitForPlayButton(30000)) {
+                            const playClicked = await clickPlayButton();
+                            if (playClicked) {
+                                console.log('Clicked play button on book detail page');
+                                await sleep(3000);
+                                if (await isPlayerPage()) {
+                                    console.log('Player page loaded after clicking play');
+                                    onCorrectPage = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     if (await isListingPage()) {
                         console.log('Confirmed listing page after wait');
                         listingData = await getAudiobookDataFromListing();
@@ -419,7 +563,7 @@ async function main() {
 
             while (!statusInserted && attempts < maxAttempts) {
                 attempts++;
-                const result = await driver.executeScript('return ' + insertStatusElement);
+                const result = await driver.executeScript('return ' + insertStatusElementString);
 
                 if (result === true) {
                     statusInserted = true;
