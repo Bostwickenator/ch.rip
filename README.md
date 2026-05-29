@@ -9,15 +9,17 @@ This project owes a lot to the automation orginally from https://gist.github.com
 First download and unzip this repository. (Or clone it using Git)
 
 There are some prerequisites please install these now:
-* chrome - https://www.google.com/chrome/dr/download - needed because we have to use a chrome extension (ext folder)
 * node.js - https://nodejs.org/en/download/prebuilt-installer - runs the control script
 
 For repacking books you will also need
 * ffmpeg - https://ffmpeg.org/ - THE swiss army knife for media file manipulation
 
+You do **not** need to install Google Chrome yourself. On first run, the script downloads a pinned **Chrome for Testing** build (used with the bundled extension in the `ext` folder) into `.browser-cache` next to this project.
+
 ### Process
 * Install the above components.
-* Navigate your command line to the directory containing this readmey then run `npm install`. This installs the selenium webdriver we need.
+* Navigate your command line to the directory containing this readme then run `npm install`. This installs the selenium webdriver and related dependencies we need.
+* Run `node chrip.js`. The first launch may take a few minutes while Chrome for Testing is downloaded.
 * Done!
 
 ## Usage ▶️
