@@ -1,6 +1,5 @@
 {
   "dependencies": {
-    "chromedriver": "^137.0.3",
     "selenium-webdriver": "^4.23.0",
     "@puppeteer/browsers": "^2.2.0"
   },
