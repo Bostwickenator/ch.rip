@@ -1,11 +1,10 @@
-const { Builder, Browser, By, Key, until } = require('selenium-webdriver')
+const { Builder, Browser, By, until } = require('selenium-webdriver')
 const chrome = require('selenium-webdriver/chrome');
 const { install, Browser: PuppeteerBrowser } = require('@puppeteer/browsers');
 const { Readable } = require('node:stream')
 const { writeFile } = require('node:fs/promises')
 const fs = require('fs');
 const path = require('path');
-
 
 let driver;
 
@@ -27,34 +26,73 @@ function getResumeStatusMessage(existingFiles, count) {
             const chapterMatch = prevFile.match(/ - \d{4} - (.+)\.m4a$/);
             const prevChapterName = chapterMatch ? chapterMatch[1] : null;
             if (prevChapterName) {
-                return `Ready! Navigate to chapter after "${prevChapterName}" and hit play`;
+                return `Ready! Navigate to chapter after '${prevChapterName}' and hit play`;
             }
         }
     }
     return `Ready! Navigate to chapter ${count} and hit play`;
 }
 
+const PLAYER_URL_EXPR = /\/player\/\d+/
+const LIBRARY_URL_EXPR = /\/library/
+const DETAILS_URL_EXPR = /\/audiobooks\/.+/
+
+async function getCurrentPage() {
+    const currentUrl = await driver.getCurrentUrl();
+    if (PLAYER_URL_EXPR.test(currentUrl)) return "player"
+    if (LIBRARY_URL_EXPR.test(currentUrl)) return "library"
+    if (DETAILS_URL_EXPR.test(currentUrl)) return "audiobook"
+    return undefined
+}
+
 async function getCover(dirname) {
+    let src;
 
-    src = await driver.findElement(By.className("cover-image")).getAttribute('src')
-    const response = await fetch(src)
-    const body = Readable.fromWeb(response.body)
-    await writeFile(path.join(dirname, 'cover.jpg'), body)
+    try {
+        src = await driver.findElement(By.className("cover-image")).getAttribute('src');
+    } catch (e) {
+        console.error('Could not find cover image:', e.message);
+        return;
+    }
 
+    try {
+        const response = await fetch(src);
+        const body = Readable.fromWeb(response.body);
+        await writeFile(path.join(dirname, 'cover.jpg'), body);
+        console.log('Cover image downloaded successfully');
+    } catch (e) {
+        console.error('Failed to download cover image:', e.message);
+    }
 }
 
 async function getCredits() {
-    const credits = await driver.findElements(By.className("credit"))
-    cred = ""
-    for (let i = 0; i < credits.length; i++) {
-        cred += cred.length != 0 ? ' - ' : '';
-        cred += await credits[i].getText()
+    try {
+        const credits = await driver.findElements(By.className("credit"))
+        let cred = ""
+        for (let i = 0; i < credits.length; i++) {
+            cred += cred.length != 0 ? ' - ' : '';
+            cred += await credits[i].getText()
+        }
+        return filename(cred)
+    } catch (e) {
+        console.error('Could not extract credits:', e.message);
+        return filename('Unknown Author');
     }
-    return filename(cred)
 }
 
 async function login() {
+    // Wait for document ready state to be 'complete'
+    await driver.wait(async () => {
+        const readyState = await driver.executeScript('return document.readyState');
+        return readyState === 'complete';
+    }, 10000); // 10 second timeout
+
+    // If there was a valid previous session still, do nothing more
+    const currentUrl = await driver.getCurrentUrl();
+    if (currentUrl.endsWith("/home")) return;
+
     await driver.get('https://www.chirpbooks.com/users/sign_in')
+
     await driver.wait(until.titleContains('Sign'), 1000)
 
     await driver.executeScript('document.querySelector("h1").textContent="Please sign-in to continue script"');
@@ -63,58 +101,156 @@ async function login() {
     await sleep(1000)
 }
 
-function extractChTrckCookie(cookieBundle) {
-    // Split the cookie bundle into individual cookie strings
-    const cookies = cookieBundle.split('; ');
-    // Find the cookie string starting with "ch_trck="
-    const chTrckCookie = cookies.find(cookie => cookie.startsWith('ch_trck='));
-
-    if (chTrckCookie) {
-        // Extract the encoded value after "ch_trck="
-        const encodedValue = chTrckCookie.split('=')[1];
-
-        return encodedValue;
-    } else {
-        console.error(JSON.stringify(cookies));
-        throw new Error("Cannot find cookie");
-    }
-}
-
 async function resetToLibrary() {
-
-    let allTabs = await driver.getAllWindowHandles();
-    for (let tab of allTabs) {
-        await driver.switchTo().window(tab); // Switch to the current tab
-        break;
+    const allTabs = await driver.getAllWindowHandles();
+    if (allTabs.length) {
+        await driver.switchTo().window(allTabs[0]) // Switch to the current tab
     }
 
-    await driver.get('https://www.chirpbooks.com/library')
-    while ((await driver.getTitle()).includes("My Library")) {
+    await driver.get('https://www.chirpbooks.com/library');
+    while ((await getCurrentPage()) === "library") {
         await sleep(1000)
-        let allTabs = await driver.getAllWindowHandles();
+
+        const allTabs = await driver.getAllWindowHandles();
         for (let tab of allTabs) {
             await driver.switchTo().window(tab); // Switch to the current tab
             // Check matching criteria (replace with your actual conditions)
-            let url = await driver.getCurrentUrl();
-            if (url.includes('player')) { // Example: Matching by title
-                console.log("Found matching tab:", url);
+            const tabPage = await getCurrentPage();
+            if (tabPage === "player") { // Example: Matching by title
+                console.log("Found matching tab:", await driver.getCurrentUrl());
                 break; // Exit loop if you only need to find one
             }
         }
     }
 }
 
-const insertStatusElement = 'var s = document.querySelector("#webplayer > div.player-main-container > div.player-book-info > div.book-info").appendChild(document.createElement("h1")); s.id="status"; s.style="color:white;";'
-const statusSelector = 'document.querySelector("#status")'
+function insertStatusElement() {
+    // Target the main player container
+    const targetContainer = document.querySelector('#webplayer > div.player-main-container > div.player-book-info > div.book-info');
 
-async function setStatus(text) {
-    await driver.executeScript(`${statusSelector}.textContent="status: " + ${JSON.stringify(text)}`);
-    console.log(text);
+    if (!targetContainer) {
+        console.warn("Failed to find player main container!");
+        return "fail";
+    }
+
+    // Remove existing status element if present
+    const existingStatus = document.getElementById('chrip-status');
+    if (existingStatus) {
+        existingStatus.remove();
+    }
+
+    // Create and insert new status element with wrapper around it for more awareness
+    const statusWrapper = document.createElement('div');
+    statusWrapper.style.cssText = "display: flex; justify-content: center";
+
+    const statusEl = document.createElement('h1');
+    statusEl.id = 'chrip-status';
+    statusEl.style.color = 'white';
+    statusEl.style.margin = '10px 0';
+    statusEl.style.padding = '8px';
+    statusEl.style.fontSize = '1.5rem';
+    statusEl.style.border = '4px solid #e42251';
+    statusEl.style.borderRadius = '4px';
+    statusEl.textContent = '🐤.🪦 Initializing...';
+
+    statusWrapper.appendChild(statusEl);
+    targetContainer.appendChild(statusWrapper);
+
+    return "success";
 }
 
-; (async function example() {
+async function setStatus(text) {
+    try {
+        const statusEl = driver.findElement(By.id("chrip-status"))
+        if (!statusEl) {
+            console.warn('Status element not found, logging to console only');
+            return
+        }
+        await driver.executeScript(`arguments[0].textContent = "🐤.🪦 ${text}"`, statusEl)
+        console.log(text);
+    } catch (err) {
+        console.warn('Failed to update status element:', err.message);
+        console.log(text);
+    }
+}
 
-    console.log("Ensuring Chrome for Testing is installed.");
+async function waitForPlayer() {
+    await resetToLibrary();
+
+    console.log("Waiting for you to navigate to a book...");
+    console.log("Please click on a book in your library to open it.");
+
+    while (true) {
+        const currentPage = await getCurrentPage();
+        if (!currentPage) {
+            console.warn("Unrecognized URL. Will wait 2 seconds and try again...")
+            await sleep(2000);
+            continue;
+        }
+
+        if (currentPage === "library") {
+            await sleep(2000);
+            continue;
+        }
+
+        if (currentPage === "player") {
+            console.log("Player loaded!");
+            return;
+        }
+
+        try {
+            const startListeningButtons = await driver.findElements(By.linkText('Start Listening'));
+            if (startListeningButtons.length === 0) {
+                console.log('Could not find play button to click');
+                continue
+            }
+
+            await startListeningButtons[0].click();
+            console.log('Automatically launching player from details page...');
+
+            const originalHandle = await driver.getWindowHandle();
+
+            const startTime = Date.now();
+            while (Date.now() - startTime < 10_000) {
+                const handles = await driver.getAllWindowHandles();
+
+                // Look for a new handle that wasn't the original
+                const newHandle = handles.find(h => h !== originalHandle);
+
+                if (newHandle) {
+                    console.log('New window/tab detected, switching to it...');
+                    await driver.switchTo().window(newHandle);
+                    break;
+                }
+
+                await sleep(500);
+            }
+        } catch (e) {
+            console.log('Could not click play button:', e.message);
+        }
+    }
+}
+
+async function attemptInsertStatus() {
+    // Try to insert status element with retry logic
+    const maxAttempts = 3;
+
+    for (let attempts = 0; attempts < maxAttempts; attempts++) {
+        const success = await driver.executeScript(`return (${insertStatusElement.toString()})() === "success"`);
+
+        if (success) {
+            console.log('Status element inserted successfully');
+            await setStatus("! PLEASE WAIT !");
+            return;
+        }
+
+        console.warn(`Attempt ${attempts}/${maxAttempts}: Could not find status element container`);
+    }
+}
+
+async function main() {
+
+    console.log("Ensuring Chrome for Testing is installed...");
     const { path: chromePath } = await install({
         browser: PuppeteerBrowser.CHROME,
         buildId: '142.0.7444.59',
@@ -126,50 +262,68 @@ async function setStatus(text) {
     if (!fs.existsSync(downloadDir)) {
         fs.mkdirSync(downloadDir);
     }
-    
-    let opt = new chrome.Options();
+
+    const opt = new chrome.Options();
     opt.setBinaryPath(chromePath);
     opt.addArguments("--disable-features=DisableLoadExtensionCommandLineSwitch");
-    opt.addArguments("--load-extension=" + path.join(__dirname, "ext"));
+    opt.addArguments(`--user-data-dir=${path.join(__dirname, ".user-data")}`);
+    opt.addArguments(`--load-extension=${path.join(__dirname, "ext")}`);
+    opt.addArguments("--disable-infobars");
     opt.setUserPreferences({
         'download.default_directory': downloadDir,
         'download.prompt_for_download': false,
         'download.directory_upgrade': true,
     });
-    driver = await new Builder().forBrowser(Browser.CHROME).setChromeOptions(opt).build()
+    driver = new Builder()
+        .forBrowser(Browser.CHROME)
+        .setChromeOptions(opt)
+        .build();
+
     try {
+        // Ensure only one tab exists and navigate to homepage
+        const handles = await driver.getAllWindowHandles();
+        if (handles.length > 1) {
+            console.log(`Closing ${handles.length - 1} extra tab(s)...`);
+            // Keep the first tab, close the rest
+            for (let i = 1; i < handles.length; i++) {
+                await driver.switchTo().window(handles[i]);
+                await driver.close();
+            }
+            await driver.switchTo().window(handles[0]);
+        }
+
+        // Always navigate to homepage to start fresh
+        await driver.get('https://www.chirpbooks.com/home');
+        await sleep(1000);
+
         await login(driver)
 
         while (true) {
-            await resetToLibrary()
+            await waitForPlayer();
 
+            console.log("On player page - proceeding with download setup")
 
-            console.log("On a book page")
-            await driver.executeScript(insertStatusElement);
-            await setStatus("!PLEASE WAIT!");
-            await driver.wait(until.elementLocated(By.className("book-title")), 60 * 1000)
-            await sleep(5000)
+            await attemptInsertStatus();
 
+            // Wait for player elements to be ready
+            driver.wait(until.elementLocated(By.css("#webplayer.initialized")), 60 * 1000)
+            await sleep(3000)
 
-            const bundle = await driver.executeScript('return document.cookie')
-            const chTrckCookie = extractChTrckCookie(bundle);
-            
             // Retrieve optional cookies with null checks
             const cfBmCookieObj = await driver.manage().getCookie('__cf_bm');
             const cfBmCookie = cfBmCookieObj ? cfBmCookieObj.value : null;
             if (!cfBmCookie) {
                 console.log('__cf_bm cookie was not found and is being skipped');
             }
-            
+
             const mjWpScrtCookieObj = await driver.manage().getCookie('mj_wp_scrt');
             const mjWpScrtCookie = mjWpScrtCookieObj ? mjWpScrtCookieObj.value : null;
             if (!mjWpScrtCookie) {
                 console.log('mj_wp_scrt cookie was not found and is being skipped');
             }
 
-
-            credits = await getCredits()
-            title = await driver.findElement(By.className("book-title")).getText()
+            const credits = await getCredits();
+            const title = await driver.findElement(By.className("book-title")).getText();
 
             const dirname = filename(`${title} - ${credits}`);
             fs.mkdir(dirname, (err) => {
@@ -178,9 +332,9 @@ async function setStatus(text) {
                 }
                 console.log('Directory created successfully!');
             });
-                     
+
             await getCover(dirname);
-            
+
             const existingFiles = fs.existsSync(dirname) ? fs.readdirSync(dirname) : [];
             const trackNumbers = existingFiles
                 .filter(f => f.endsWith('.m4a'))
@@ -190,12 +344,12 @@ async function setStatus(text) {
                 });
             let count = trackNumbers.length > 0 ? Math.max(...trackNumbers) + 1 : 1;
             console.log(`Resuming from file ${count}`);
-            
+
             await setStatus(getResumeStatusMessage(existingFiles, count));
-            urls = [];
+
+            const urls = [];
             let moreChapters = true;
             while (moreChapters) {
-
                 await sleep(1000)
                 await driver.wait(until.elementLocated(By.id('audioUrl')), 100000)
                 await setStatus("Downloading file " + count);
@@ -216,21 +370,21 @@ async function setStatus(text) {
                         fs.unlinkSync(path.join(downloadDir, file));
                     }
                 };
-                
+
                 const waitForDownload = async (timeoutMs = 60000) => {
                     const startTime = Date.now();
                     let lastSize = 0;
                     let stableCount = 0;
-                    
+
                     while (Date.now() - startTime < timeoutMs) {
                         const files = fs.readdirSync(downloadDir);
                         const downloading = files.filter(f => f.endsWith('.crdownload') || f.endsWith('.tmp'));
                         const completed = files.filter(f => !f.endsWith('.crdownload') && !f.endsWith('.tmp'));
-                        
+
                         if (completed.length > 0) {
                             const filePath = path.join(downloadDir, completed[0]);
                             const currentSize = fs.statSync(filePath).size;
-                            
+
                             if (currentSize > 0 && currentSize === lastSize) {
                                 stableCount++;
                                 if (stableCount >= 3) {
@@ -243,21 +397,21 @@ async function setStatus(text) {
                         } else if (downloading.length > 0) {
                             stableCount = 0;
                         }
-                        
+
                         await sleep(500);
                     }
                     return null;
                 };
-                
+
                 clearDownloadDir();
-                
+
 
                 const originalWindow = await driver.getWindowHandle();
                 await driver.switchTo().newWindow('tab');
                 await driver.get(url);
-                
+
                 const downloadedFile = await waitForDownload(60000);
-                
+
                 if (!downloadedFile) {
                     console.error('A download failed');
                     console.error('Please rerun the script. Progress will be resumed from the last successful download.');
@@ -265,17 +419,17 @@ async function setStatus(text) {
                     await driver.switchTo().window(originalWindow);
                     process.exit(1);
                 }
-                
+
                 await driver.close();
                 await driver.switchTo().window(originalWindow);
                 await sleep(500);
-                
+
                 await setStatus("Waiting for 5 seconds to avoid rate limiting");
 
                 // Pause for 5 seconds to avoid rate limiting
                 await sleep(5000);
-                
-                
+
+
                 const audioBuffer = fs.readFileSync(downloadedFile);
                 console.log(`Downloaded ${path.basename(downloadedFile)}: ${audioBuffer.length} bytes`);
 
@@ -292,7 +446,7 @@ async function setStatus(text) {
                 if (!enabled) {
                     console.log('Download complete!');
                     moreChapters = false;
-                    driver.close()
+                    await driver.close();
                     break;
                 } else {
                     await btn.click()
@@ -303,13 +457,13 @@ async function setStatus(text) {
                 await play.click();
             }
         }
-    }
-    catch (error) {
+    } catch (error) {
         console.error(error);
-    }
-    finally {
+    } finally {
         if (driver) {
             await driver.quit()
         }
     }
-})()
+}
+
+main()
